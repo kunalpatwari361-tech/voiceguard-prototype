@@ -52,6 +52,8 @@ object Prefs {
     var autoCheck by bool("auto_check", true)
     var panicPause by bool("panic_pause", true)
     var setupDone by bool("setup_done", false)
+    /** User tapped "Not now" on the phone-app + contacts screen; it is then only offered again from Settings. */
+    var permGateSkipped by bool("perm_gate_skipped", false)
 
     var scamNumbers by set("scam_numbers")
     var blockedNumbers by set("blocked_numbers")

@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -41,7 +42,14 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(route) {
                     route?.let { if (Prefs.setupDone) nav.navigate(it) { launchSingleTop = true }; pending.value = null }
                 }
-                AppNav(nav, if (Prefs.setupDone) "home" else "setup")
+                val start = remember {
+                    when {
+                        PermissionGate.shouldShow(this) -> "permissions"
+                        Prefs.setupDone -> "home"
+                        else -> "setup"
+                    }
+                }
+                AppNav(nav, start)
             }
         }
     }
@@ -81,6 +89,11 @@ class MainActivity : ComponentActivity() {
 fun AppNav(nav: NavHostController, start: String) {
     val back: () -> Unit = { nav.popBackStack() }
     NavHost(nav, startDestination = start) {
+        composable("permissions") {
+            PermissionGateScreen(onDone = {
+                nav.navigate(if (Prefs.setupDone) "home" else "setup") { popUpTo("permissions") { inclusive = true } }
+            })
+        }
         composable("setup") { SetupScreen(onDone = { nav.navigate("home") { popUpTo("setup") { inclusive = true } } }) }
         composable("home") { HomeScreen(nav) }
         composable("dialer?number={number}", listOf(navArgument("number") { defaultValue = "" })) {

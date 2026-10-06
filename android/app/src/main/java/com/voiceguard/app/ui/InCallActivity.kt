@@ -23,6 +23,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.voiceguard.app.audio.Recorder
 import com.voiceguard.app.data.Api
+import com.voiceguard.app.data.Contacts
 import com.voiceguard.app.data.Numbers
 import com.voiceguard.app.data.Prefs
 import com.voiceguard.app.data.Sync
@@ -41,8 +43,10 @@ import com.voiceguard.app.data.asObj
 import com.voiceguard.app.data.str
 import com.voiceguard.app.service.CallWatch
 import com.voiceguard.app.telecom.CallManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 
 /** VoiceGuard Dialer in-call screen for real phone calls (feature 1 + tools 6, 8, 11, 12, 15, 16, 19). */
@@ -58,6 +62,9 @@ class InCallActivity : ComponentActivity() {
                 val connectedAt by CallManager.connectedAt.collectAsState()
                 val number = remember(call) { CallManager.number }
                 val family = remember(number) { Sync.memberByPhone(number) }
+                val contactName by produceState<String?>(null, number) {
+                    value = withContext(Dispatchers.IO) { Contacts.nameFor(this@InCallActivity, number) }
+                }
                 var info by remember { mutableStateOf<JsonObject?>(null) }
                 var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
                 val tools = remember(number) { CallToolsState(number, null, "live_call") }
@@ -65,7 +72,8 @@ class InCallActivity : ComponentActivity() {
                 val scope = rememberCoroutineScope()
 
                 LaunchedEffect(number) {
-                    if (number.isNotBlank() && family == null)
+                    // Saved contacts are people you know: skip the spam lookup, like a caller-ID app does.
+                    if (number.isNotBlank() && family == null && withContext(Dispatchers.IO) { Contacts.nameFor(this@InCallActivity, number) } == null)
                         info = runCatching { Api.get("/api/numbers/$number?user_id=${Prefs.userId}").asObj() }.getOrNull()
                 }
                 LaunchedEffect(state) {
@@ -76,8 +84,10 @@ class InCallActivity : ComponentActivity() {
                 Screen(tr("VoiceGuard call", "VoiceGuard कॉल"), onBack = { finish() }) {
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(VG.surface).padding(18.dp),
                         horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(family?.str("name") ?: Numbers.pretty(number), fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                        Text(family?.str("name") ?: contactName ?: Numbers.pretty(number), fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                        if (family == null && contactName != null) Text(Numbers.pretty(number), color = VG.muted)
                         if (family != null) Chip(tr("Saved family number", "सेव परिवार नंबर"), VG.green)
+                        else if (contactName != null) Chip(tr("Saved contact", "सेव कॉन्टैक्ट"), VG.blue)
                         Text(when {
                             ended -> tr("Call ended", "कॉल ख़त्म")
                             state == Call.STATE_RINGING -> tr("Incoming call", "इनकमिंग कॉल")

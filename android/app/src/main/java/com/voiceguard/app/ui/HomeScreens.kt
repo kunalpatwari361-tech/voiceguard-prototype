@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Folder
@@ -49,6 +50,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -62,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.voiceguard.app.data.Api
+import com.voiceguard.app.data.Contacts
 import com.voiceguard.app.data.Live
 import com.voiceguard.app.data.Numbers
 import com.voiceguard.app.data.Prefs
@@ -74,8 +77,10 @@ import com.voiceguard.app.data.num
 import com.voiceguard.app.data.objs
 import com.voiceguard.app.data.str
 import com.voiceguard.app.telecom.RecentCalls
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 
 @Composable
@@ -154,6 +159,8 @@ fun DialerScreen(initial: String, nav: NavHostController, back: () -> Unit) {
     var number by remember { mutableStateOf(initial) }
     var info by remember { mutableStateOf<JsonObject?>(null) }
     val isDialer = remember { ctx.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_DIALER) }
+    val contacts by produceState(emptyList<Contacts.Contact>()) { value = withContext(Dispatchers.IO) { Contacts.all(ctx, refresh = true) } }
+    val savedName = remember(number, contacts) { Numbers.normalize(number).let { n -> contacts.firstOrNull { it.number == n }?.name } }
 
     LaunchedEffect(number) {
         info = null
@@ -176,6 +183,7 @@ fun DialerScreen(initial: String, nav: NavHostController, back: () -> Unit) {
         OutlinedTextField(number, { number = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Bold),
             trailingIcon = { IconButton({ number = number.dropLast(1) }) { Icon(Icons.Default.Backspace, null) } })
+        savedName?.let { Chip(tr("Saved contact", "सेव कॉन्टैक्ट") + " · $it", VG.green) }
         info?.let { NumberInfoCard(it) }
         listOf("123", "456", "789", "*0#").forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -198,6 +206,23 @@ fun DialerScreen(initial: String, nav: NavHostController, back: () -> Unit) {
                     Text(Numbers.pretty(m.str("phone")), color = VG.muted)
                     IconButton({ place(m.str("phone") ?: return@IconButton) }) { Icon(Icons.Default.Call, null, tint = VG.green) }
                 }
+            }
+        }
+        if (!Contacts.granted(ctx)) Text(tr("Allow contacts in Settings → Permissions to see your saved names here.",
+            "अपने सेव नाम यहाँ देखने के लिए सेटिंग्स → अनुमतियाँ में कॉन्टैक्ट्स की अनुमति दें।"), color = VG.muted, fontSize = 13.sp)
+        else if (contacts.isNotEmpty()) {
+            val matches = remember(number, contacts) { Contacts.search(contacts, number) }
+            Section(tr("Contacts", "कॉन्टैक्ट्स") + " (${matches.size})", Icons.Default.Contacts) {
+                matches.take(50).forEach { c ->
+                    Row(Modifier.fillMaxWidth().clickable { number = c.number }, verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(c.name, fontWeight = FontWeight.SemiBold)
+                            Text(Numbers.pretty(c.number), color = VG.muted, fontSize = 13.sp)
+                        }
+                        IconButton({ place(c.number) }) { Icon(Icons.Default.Call, null, tint = VG.green) }
+                    }
+                }
+                if (matches.size > 50) Text(tr("Type a name or number to narrow down", "नाम या नंबर टाइप करके खोजें"), color = VG.muted, fontSize = 13.sp)
             }
         }
         val recent = remember { RecentCalls.items.toList() }

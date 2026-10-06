@@ -99,7 +99,7 @@ acts as "Rahul's phone" (online, not on a call, voice print saved, receives aler
 
 | # | Feature | Status | Where |
 |---|---|---|---|
-| 1 | VoiceGuard Dialer | Real (default phone app role) | `telecom/CallManager.kt`, `ui/InCallActivity.kt`, `ui/HomeScreens.kt` |
+| 1 | VoiceGuard Dialer | Real (default phone app role; Truecaller-style first-run screen asks for the phone-app role + contacts, saved names shown in dialer/in-call) | `telecom/CallManager.kt`, `ui/InCallActivity.kt`, `ui/HomeScreens.kt`, `ui/PermissionGate.kt`, `data/Contacts.kt` |
 | 2 | Family Circle | Real | `routers/people.py`, `ui/FamilyScreens.kt` |
 | 3 | AI Voice Detector | Real (trained model) | `ai/models.py`, `training/train_detector.py` |
 | 4 | Reverse Engineering Engine | Real | `ai/fingerprints.py` |
