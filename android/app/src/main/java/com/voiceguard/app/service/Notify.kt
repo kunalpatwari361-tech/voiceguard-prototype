@@ -30,6 +30,7 @@ object Notify {
         nm.createNotificationChannel(NotificationChannel(CH_ALERTS, "Family alerts", NotificationManager.IMPORTANCE_HIGH))
         nm.createNotificationChannel(NotificationChannel(CH_URGENT, "Urgent: verify & HD calls", NotificationManager.IMPORTANCE_HIGH))
         nm.createNotificationChannel(NotificationChannel(CH_SPAM, "Spam warnings", NotificationManager.IMPORTANCE_HIGH))
+        com.voiceguard.app.telecom.CallNotifier.createChannels(ctx)
     }
 
     private fun open(ctx: Context, nav: String, extras: Map<String, String?> = emptyMap(), req: Int = nav.hashCode()): PendingIntent {

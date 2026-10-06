@@ -141,6 +141,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".telecom.CallActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".service.BootReceiver"
             android:exported="false">
             <intent-filter>

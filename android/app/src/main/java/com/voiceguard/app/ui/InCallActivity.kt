@@ -59,8 +59,18 @@ import kotlinx.serialization.json.JsonObject
 class InCallActivity : ComponentActivity() {
     private var proximity: PowerManager.WakeLock? = null
 
+    private fun handleAction(i: android.content.Intent?) {
+        if (i?.getStringExtra("action") == "answer") CallManager.answer()
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleAction(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleAction(intent)
         val pm = getSystemService(PowerManager::class.java)
         if (pm.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK))
             proximity = pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "voiceguard:incall")
@@ -102,6 +112,9 @@ class InCallActivity : ComponentActivity() {
                     while (state == Call.STATE_ACTIVE || state == Call.STATE_HOLDING) { now = System.currentTimeMillis(); delay(1000) }
                 }
                 DisposableEffect(Unit) { onDispose { live.stop() } }
+                LaunchedEffect(tools.analysis) {
+                    tools.analysis.obj("risk")?.let { CallManager.publishRisk("Live risk ${it.int("score")}/100") }
+                }
 
                 Screen(tr("VoiceGuard call", "VoiceGuard कॉल"), onBack = { finish() }) {
                     val risk = tools.analysis.obj("risk")
@@ -117,6 +130,7 @@ class InCallActivity : ComponentActivity() {
                         Text(when {
                             ended -> tr("Call ended", "कॉल ख़त्म")
                             state == Call.STATE_RINGING -> tr("Incoming call", "इनकमिंग कॉल")
+                            state == Call.STATE_SELECT_PHONE_ACCOUNT -> tr("Choose a SIM to call", "कॉल के लिए SIM चुनें")
                             state == Call.STATE_DIALING || state == Call.STATE_CONNECTING -> tr("Calling…", "कॉल हो रहा है…")
                             state == Call.STATE_HOLDING -> tr("On hold", "होल्ड पर")
                             state == Call.STATE_ACTIVE && connectedAt > 0 -> "%02d:%02d".format((now - connectedAt) / 60000, (now - connectedAt) / 1000 % 60)
@@ -128,6 +142,13 @@ class InCallActivity : ComponentActivity() {
                     info?.let { if ((it.num("spam_score") ?: 0.0) >= 0.3 || contactName == null) NumberInfoCard(it) }
 
                     if (!ended) when (state) {
+                        Call.STATE_SELECT_PHONE_ACCOUNT -> {
+                            Text(tr("Which SIM should make this call?", "यह कॉल किस SIM से करें?"), fontWeight = FontWeight.SemiBold)
+                            com.voiceguard.app.telecom.Sims.list(this@InCallActivity).forEach { (h, label) ->
+                                BigButton(label, Icons.Default.Call, VG.green) { CallManager.selectSim(h) }
+                            }
+                            SmallButton(tr("Cancel call", "कॉल रद्द करें")) { CallManager.hangup() }
+                        }
                         Call.STATE_RINGING -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             BigButton(tr("Decline", "काटें"), Icons.Default.CallEnd, VG.red, modifier = Modifier.weight(1f)) { CallManager.hangup() }
                             BigButton(tr("Answer", "उठाएं"), Icons.Default.Call, VG.green, modifier = Modifier.weight(1f)) { CallManager.answer() }
@@ -159,7 +180,7 @@ class InCallActivity : ComponentActivity() {
                             BigButton(tr("End call", "कॉल काटें"), Icons.Default.CallEnd, VG.red) { CallManager.hangup() }
                         }
                     }
-                    if (state != Call.STATE_RINGING && !ended) {
+                    if (state != Call.STATE_RINGING && state != Call.STATE_SELECT_PHONE_ACCOUNT && !ended) {
                         LiveCheckCard(live) { live.start(scope) { if (!CallManager.speaker.value) CallManager.toggleSpeaker() } }
                         CallTools(tools, null) { _ ->
                             if (!CallManager.speaker.value) CallManager.toggleSpeaker()

@@ -160,14 +160,10 @@ fun ReportActions(r: JsonObject, rc: ReportCtx, nav: NavHostController?) {
             }
             SmallButton(tr("Alert family", "परिवार को बताएं"), Icons.Default.FamilyRestroom, Modifier.weight(1f)) {
                 scope.launch {
-                    msg = runCatching {
-                        Api.post("/api/alerts", json("from_user_id" to Prefs.userId, "kind" to "scam_call",
-                            "title" to "${Prefs.name} got a suspected scam call",
-                            "body" to "Risk ${risk.int("score")}/100 from ${rc.number ?: "unknown number"}" +
-                                (claimed?.str("name")?.let { ", caller pretended to be $it" } ?: "") + ". Please call ${Prefs.name}.",
-                            "payload" to mapOf("number" to rc.number, "score" to risk.int("score"))))
-                        tr("Family alerted.", "परिवार को बता दिया।")
-                    }.getOrElse { it.message }
+                    msg = notifyFamily("${Prefs.name} got a suspected scam call",
+                        "Risk ${risk.int("score")}/100 from ${rc.number ?: "unknown number"}" +
+                            (claimed?.str("name")?.let { ", caller pretended to be $it" } ?: "") + ". Please call ${Prefs.name}.",
+                        mapOf("number" to rc.number, "score" to risk.int("score"), "victim_phone" to Prefs.phone, "from_name" to Prefs.name)).second
                 }
             }
         }

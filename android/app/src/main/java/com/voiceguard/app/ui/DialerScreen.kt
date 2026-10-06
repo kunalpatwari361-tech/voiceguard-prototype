@@ -56,6 +56,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import com.voiceguard.app.telecom.Sims
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.SimCard
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import android.telecom.PhoneAccountHandle
+import android.os.Bundle
 import com.voiceguard.app.data.Api
 import com.voiceguard.app.data.CallEntry
 import com.voiceguard.app.data.Contact
@@ -72,10 +82,11 @@ import kotlinx.serialization.json.JsonObject
 @Composable
 fun DialerScreen(initial: String, nav: NavHostController, back: () -> Unit) {
     val ctx = LocalContext.current
-    var tab by remember { mutableIntStateOf(if (initial.isNotBlank()) 0 else 1) }
+    var tab by remember { mutableIntStateOf(0) }
     var contacts by remember { mutableStateOf<List<Contact>>(emptyList()) }
     var log by remember { mutableStateOf<List<CallEntry>>(emptyList()) }
     var permTick by remember { mutableIntStateOf(0) }
+    var simFor by remember { mutableStateOf<String?>(null) }
     val isDialer = remember { ctx.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_DIALER) }
     val perms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permTick++ }
     val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
@@ -85,12 +96,37 @@ fun DialerScreen(initial: String, nav: NavHostController, back: () -> Unit) {
         log = Contacts.callLog(ctx)
     }
 
+    fun placeWith(n: String, sim: PhoneAccountHandle?) {
+        val extras = Bundle().apply { if (sim != null) putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, sim) }
+        runCatching { ctx.getSystemService(TelecomManager::class.java).placeCall(Uri.fromParts("tel", n, null), extras) }
+            .onFailure { dial(ctx, n) }
+    }
+
+    /** Real call. As the default Phone app we place it ourselves; dual-SIM phones get a SIM choice first. */
     fun place(n: String) {
         if (n.isBlank()) return
-        if (isDialer) {
-            runCatching { ctx.getSystemService(TelecomManager::class.java).placeCall(Uri.fromParts("tel", n, null), null) }
-                .onFailure { dial(ctx, n) }
-        } else dial(ctx, n)
+        if (!isDialer) { dial(ctx, n); return }
+        val sims = Sims.list(ctx)
+        val def = Sims.default(ctx)
+        if (def == null && sims.size > 1) simFor = n else placeWith(n, def ?: sims.firstOrNull()?.first)
+    }
+
+    simFor?.let { n ->
+        AlertDialog(
+            onDismissRequest = { simFor = null },
+            title = { Text(tr("Call with which SIM?", "किस SIM से कॉल करें?")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(Numbers.pretty(n), color = VG.muted)
+                    Sims.list(ctx).forEach { (h, label) ->
+                        BigButton(label, Icons.Default.SimCard, VG.green) { simFor = null; placeWith(n, h) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { SmallButton(tr("Cancel", "रद्द करें")) { simFor = null } },
+            containerColor = VG.surface,
+        )
     }
 
     val nameOf = remember(contacts) { contacts.associate { it.normalized to it.name } }
@@ -114,20 +150,27 @@ fun DialerScreen(initial: String, nav: NavHostController, back: () -> Unit) {
                 perms.launch(arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG))
             }
         }
-        when (tab) {
-            0 -> KeypadTab(initial, contacts, nav, ::place)
-            1 -> RecentsTab(log, nameOf, nav, ::place)
-            else -> ContactsTab(contacts, nav, ::place)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when (tab) {
+                0 -> KeypadTab(initial, contacts, nav, ::place)
+                1 -> RecentsTab(log, nameOf, nav, ::place)
+                else -> ContactsTab(contacts, nav, ::place)
+            }
         }
     }
 }
 
+private val KEYS = listOf("1" to "", "2" to "ABC", "3" to "DEF", "4" to "GHI", "5" to "JKL", "6" to "MNO",
+    "7" to "PQRS", "8" to "TUV", "9" to "WXYZ", "*" to "", "0" to "+", "#" to "")
+
+/** Keypad tab: matches on top, the typed number, then the keypad and Call button at the bottom like a normal phone. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun KeypadTab(initial: String, contacts: List<Contact>, nav: NavHostController, place: (String) -> Unit) {
     var number by remember { mutableStateOf(initial) }
     var info by remember { mutableStateOf<JsonObject?>(null) }
     val digits = number.filter { it.isDigit() }
-    val suggestions = remember(digits, contacts) { if (digits.length >= 2) contacts.filter { Contacts.matches(it, digits) }.take(4) else emptyList() }
+    val suggestions = remember(digits, contacts) { if (digits.length >= 2) contacts.filter { Contacts.matches(it, digits) }.take(3) else emptyList() }
     LaunchedEffect(number) {
         info = null
         if (digits.length >= 10) {
@@ -135,24 +178,43 @@ private fun KeypadTab(initial: String, contacts: List<Contact>, nav: NavHostCont
             info = runCatching { Api.get("/api/numbers/${Uri.encode(number)}?user_id=${Prefs.userId}").asObj() }.getOrNull()
         }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
-        OutlinedTextField(number, { number = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Bold),
-            trailingIcon = { IconButton({ number = number.dropLast(1) }) { Icon(Icons.Default.Backspace, null) } })
-        suggestions.forEach { c -> PersonRow(c.name, c.number, null, onCall = { place(c.number) }) { number = c.number } }
-        info?.let { NumberInfoCard(it) }
-        listOf("123", "456", "789", "*0#").forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { ch ->
-                    Box(Modifier.weight(1f).aspectRatio(2.3f).clip(RoundedCornerShape(14.dp)).background(VG.surface)
-                        .clickable { number += ch }, contentAlignment = Alignment.Center) {
-                        Text("$ch", fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+    Column(Modifier.fillMaxSize()) {
+        // ---- top: who the number belongs to
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(4.dp))
+            suggestions.forEach { c -> PersonRow(c.name, c.number, null, onCall = { place(c.number) }) { number = c.number } }
+            info?.let { NumberInfoCard(it) }
+            if (number.length >= 5) SmallButton(tr("Number details", "नंबर जानकारी"), Icons.Default.Info) { nav.navigate("number/" + Uri.encode(number)) }
+        }
+        // ---- typed number
+        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(number.ifEmpty { " " }, fontSize = 32.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+            if (number.isNotEmpty()) Box(Modifier.size(48.dp).clip(CircleShape).combinedClickable(
+                onClick = { number = number.dropLast(1) }, onLongClick = { number = "" }), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Backspace, "Delete", tint = VG.muted)
+            }
+        }
+        // ---- bottom: keypad + call button
+        KEYS.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                row.forEach { (d, letters) ->
+                    Column(Modifier.weight(1f).height(62.dp).clip(RoundedCornerShape(16.dp)).background(VG.surface)
+                        .combinedClickable(onClick = { number += d }, onLongClick = { number += if (d == "0") "+" else d }),
+                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Text(d, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+                        if (letters.isNotEmpty()) Text(letters, fontSize = 10.sp, color = VG.muted, letterSpacing = 1.sp)
                     }
                 }
             }
         }
-        BigButton(tr("Call", "कॉल करें"), Icons.Default.Call, enabled = number.isNotBlank()) { place(number) }
-        if (number.length >= 5) SmallButton(tr("Number details", "नंबर जानकारी"), Icons.Default.Info) { nav.navigate("number/" + Uri.encode(number)) }
+        Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(70.dp).clip(CircleShape).background(if (number.isBlank()) VG.surface2 else VG.green)
+                .clickable(enabled = number.isNotBlank()) { place(number) }, contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Call, tr("Call", "कॉल करें"), tint = if (number.isBlank()) VG.muted else Color.Black,
+                    modifier = Modifier.size(32.dp))
+            }
+        }
     }
 }
 

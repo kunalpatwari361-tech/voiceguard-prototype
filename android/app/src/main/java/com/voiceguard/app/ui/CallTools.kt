@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.HdrOn
+import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.HelpCenter
 import androidx.compose.material.icons.filled.ManageSearch
 import androidx.compose.material.icons.filled.PanTool
@@ -73,6 +74,8 @@ class CallToolsState(val number: String?, claimedId: String?, val source: String
     }
 
     var phase by mutableStateOf("")
+    var notifyBusy by mutableStateOf(false)
+    var notifyResult by mutableStateOf<Pair<Boolean, String>?>(null)
 
     /** Quick pass first (voice checks, ~5 s), then the full pass with speech-to-text + scam words. */
     private var rerun = false
@@ -143,6 +146,24 @@ fun CallTools(s: CallToolsState, nav: NavHostController?, captureAnswer: suspend
         }
     }
 
+    // ---- Family Alert (17), on demand during the call
+    Section(tr("Notify my family", "मेरे परिवार को बताएं"), Icons.Default.FamilyRestroom, VG.amber) {
+        Text(tr("Sends an alert to every phone in your family circle right now, with a button to call you.",
+            "आपके परिवार के हर फ़ोन पर अभी अलर्ट जाएगा, आपको कॉल करने के बटन के साथ।"), color = VG.muted, fontSize = 13.sp)
+        if (s.notifyBusy) Busy(tr("Sending…", "भेज रहे हैं…"))
+        else BigButton(tr("Notify family now", "परिवार को अभी बताएं"), Icons.Default.FamilyRestroom, VG.amber) {
+            scope.launch {
+                s.notifyBusy = true
+                s.notifyResult = notifyFamily("${Prefs.name} is on a suspicious call",
+                    "Caller ${s.number ?: "unknown"}" + (s.claimedName?.let { " says they are $it" } ?: "") +
+                        (s.analysis.obj("risk").int("score")?.let { ". Risk $it/100" } ?: "") + ". Call ${Prefs.name} now.",
+                    mapOf("number" to s.number, "victim_phone" to Prefs.phone, "from_name" to Prefs.name))
+                s.notifyBusy = false
+            }
+        }
+        s.notifyResult?.let { (ok, text) -> Banner(text, if (ok) VG.green else VG.amber) }
+    }
+
     // ---- Voice Test
     Section(tr("Voice Test (Voice CAPTCHA)", "वॉइस टेस्ट"), Icons.Default.Quiz, VG.violet) {
         val c = s.challenge
@@ -203,4 +224,23 @@ fun CallTools(s: CallToolsState, nav: NavHostController?, captureAnswer: suspend
         }
         ctx.startActivity(Intent(ctx, PanicPauseActivity::class.java).putExtra("app", "panic button"))
     }
+}
+
+/**
+ * Family Alert (17): push an alert to the whole family circle. Returns (delivered, message for the user),
+ * e.g. "Sent to 2 family members (1 online now)" or how to add family when the circle is empty.
+ */
+suspend fun notifyFamily(title: String, body: String, payload: Map<String, Any?> = emptyMap()): Pair<Boolean, String> {
+    if (Prefs.familyId == null) return false to tr("You are not in a family circle yet. Open Family Circle to create or join one.",
+        "आप अभी किसी परिवार सर्कल में नहीं हैं। परिवार सर्कल खोलकर बनाएं या जुड़ें।")
+    return runCatching {
+        val r = Api.post("/api/alerts", json("from_user_id" to Prefs.userId, "kind" to "scam_call", "title" to title,
+            "body" to body, "payload" to payload)).asObj()
+        val sent = r.int("sent_to") ?: 0
+        val online = r.int("online") ?: 0
+        val code = Sync.cachedFamily().str("invite_code") ?: "—"
+        if (sent == 0) false to tr("Nobody else is in your family circle yet, so no one was notified. On a family member's phone: install VoiceGuard → Join → code $code.",
+            "आपके परिवार सर्कल में अभी कोई और नहीं है, इसलिए किसी को सूचना नहीं गई। परिवार के फ़ोन पर: VoiceGuard → जुड़ें → कोड $code।")
+        else true to tr("Sent to $sent family member(s) – $online online now.", "$sent परिवार सदस्य(ों) को भेजा – $online अभी ऑनलाइन।")
+    }.getOrElse { false to (it.message ?: "Could not send") }
 }
