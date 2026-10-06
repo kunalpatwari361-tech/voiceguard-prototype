@@ -22,6 +22,7 @@ object Notify {
     const val ID_HD = 11
     const val ID_PANIC = 12
     const val ID_CALLBACK = 13
+    const val ID_INVITE = 14
     private var nextId = 100
 
     fun createChannels(ctx: Context) {
@@ -108,6 +109,15 @@ object Notify {
             .setCategory(if (urgent) Notification.CATEGORY_ALARM else Notification.CATEGORY_MESSAGE).setAutoCancel(true)
             .setContentIntent(open(ctx, "sms", mapOf("address" to from), ("sms" + from).hashCode())).build()
         nm(ctx).notify(("sms" + from).hashCode(), n)
+    }
+
+    /** Someone added this number to their family circle – tap to Join. */
+    fun familyInvite(ctx: Context, by: String, family: String) {
+        val n = Notification.Builder(ctx, CH_ALERTS).setSmallIcon(R.drawable.ic_shield)
+            .setContentTitle("$by added you to $family")
+            .setContentText("Tap to join the family circle on VoiceGuard.").setAutoCancel(true)
+            .setContentIntent(open(ctx, "family")).build()
+        nm(ctx).notify(ID_INVITE, n)
     }
 
     /** Call-Back Alert (feature 18): after a suspicious call, call the real person on their saved number. */

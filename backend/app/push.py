@@ -23,7 +23,7 @@ from .db import PushToken, engine
 log = logging.getLogger("voiceguard.push")
 SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
 # How long FCM keeps trying a phone that is switched off – a stale question or ring is useless.
-TTL_S = {"alert": 6 * 3600, "verify_request": 60, "hd_incoming": 45}
+TTL_S = {"alert": 6 * 3600, "verify_request": 60, "hd_incoming": 45, "family_invite": 7 * 86400}
 MAX_DATA = 3500          # FCM allows 4 KB of data per message
 MAX_PHONES = 5           # push tokens kept per account
 

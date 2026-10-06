@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FamilyRestroom
@@ -79,6 +81,7 @@ fun FamilyScreen(nav: NavHostController, back: (() -> Unit)?) {
     var err by remember { mutableStateOf<String?>(null) }
     var verify by remember { mutableStateOf<Pair<String, JsonObject>?>(null) }
     var busy by remember { mutableStateOf<String?>(null) }
+    var adding by remember { mutableStateOf(false) }
     suspend fun refresh() { runCatching { Sync.family() }.onSuccess { fam = it }.onFailure { err = it.message } }
     LaunchedEffect(Unit) { refresh() }
     LaunchedEffect(Unit) { Live.events.collect { if (it.str("type") == "family_updated") refresh() } }
@@ -86,16 +89,25 @@ fun FamilyScreen(nav: NavHostController, back: (() -> Unit)?) {
     Screen(tr("Family Circle", "परिवार सर्कल"), back, actions = {
         IconButton({ scope.launch { refresh() } }) { Icon(Icons.Default.Refresh, null) }
     }) {
+        InvitesCard { fam = it }
         if (Prefs.familyId == null) {
-            Text(tr("You are not in a family circle yet.", "आप अभी किसी परिवार सर्कल में नहीं हैं।"))
-            SmallButton(tr("Set up family", "परिवार सेट करें")) { nav.navigate("setup") }
+            NoFamilyPanel { fam = it }
             return@Screen
         }
-        Section(tr("Invite family", "परिवार को जोड़ें"), Icons.Default.FamilyRestroom, VG.green) {
-            Text(tr("On the other phone: install VoiceGuard → Join → enter code", "दूसरे फ़ोन पर: VoiceGuard → जुड़ें → कोड डालें"), color = VG.muted, fontSize = 13.sp)
-            Text(fam.str("invite_code").orEmpty().chunked(3).joinToString(" "), fontSize = 34.sp, fontWeight = FontWeight.Bold, color = VG.green)
+        BigButton(tr("Add family member", "परिवार का सदस्य जोड़ें"), Icons.Default.PersonAdd, VG.green) { adding = true }
+        Section(tr("Or share your family code", "या परिवार कोड भेजें"), Icons.Default.FamilyRestroom, VG.green) {
+            Text(tr("On their phone: install VoiceGuard → sign in → Family → join with this code.", "उनके फ़ोन पर: VoiceGuard → साइन इन → परिवार → यह कोड डालें।"),
+                color = VG.muted, fontSize = 13.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(fam.str("invite_code").orEmpty().chunked(3).joinToString(" "), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = VG.green,
+                    modifier = Modifier.weight(1f))
+                IconButton({ shareText(ctx, inviteText(tr("there", "जी"), Prefs.phone.orEmpty(), fam.str("invite_code"))) }) {
+                    Icon(Icons.Default.Share, tr("Share", "शेयर"), tint = VG.blue)
+                }
+            }
         }
         ErrorBox(err)
+        if (adding) AddMemberSheet(onChanged = { fam = it }, onDismiss = { adding = false })
         val members = fam.objs("members")
         val located = members.filter { it.obj("location") != null }
         if (located.isNotEmpty()) FamilyMap(located)
@@ -149,6 +161,11 @@ fun FamilyScreen(nav: NavHostController, back: (() -> Unit)?) {
                 }
             }
         }
+        val pending = fam.objs("pending")
+        if (pending.isNotEmpty()) Text(tr("Waiting to join", "जुड़ने का इंतज़ार"), color = VG.amber, fontWeight = FontWeight.SemiBold)
+        pending.forEach { p -> PendingMemberCard(p, fam.str("invite_code")) { fam = it } }
+        if (members.size <= 1 && pending.isEmpty()) Text(tr("Only you are here yet – tap \"Add family member\".", "अभी सिर्फ़ आप हैं – \"परिवार का सदस्य जोड़ें\" दबाएं।"),
+            color = VG.muted)
         busy?.let { Busy(it) }
         SmallButton(tr("Record / update MY voice print", "मेरा वॉइस प्रिंट रिकॉर्ड करें"), Icons.Default.RecordVoiceOver) { nav.navigate("voiceprint") }
     }

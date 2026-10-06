@@ -18,6 +18,7 @@ object Inbox {
         "alert" -> "alert:" + e.obj("alert").str("id")
         "verify_request" -> "verify:" + e.str("request_id")
         "hd_incoming" -> "hd:" + e.str("call_id")
+        "family_invite" -> "invite:" + e.obj("invite").str("id")
         else -> null
     }
 
@@ -35,6 +36,9 @@ object Inbox {
                 e.str("number"))
             "hd_incoming" -> Notify.hdIncoming(ctx, e.str("call_id")!!, e.obj("from").str("name") ?: "Family")
             "location_request" -> runCatching { Loc.send(ctx, e.str("request_id")) }
+            "family_invite" -> e.obj("invite").let { i ->
+                Notify.familyInvite(ctx, i.str("invited_by") ?: "Family", i.str("family_name") ?: "a family circle")
+            }
             "scamlist_updated" -> Sync.lists()
             "family_updated" -> runCatching { Sync.family() }
             "alert" -> {

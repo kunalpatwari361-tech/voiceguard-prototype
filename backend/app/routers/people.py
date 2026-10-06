@@ -11,10 +11,11 @@ from sqlmodel import Session, or_, select
 from ..ai import models
 from ..ai.audio_io import load_audio
 from ..ai.fingerprints import speech_mask
-from ..auth import current_user, require_family, require_self
-from ..db import Alert, Family, User, get_session, now
+from ..ai.number_info import normalize
+from ..auth import current_user, require_family, require_self, valid_phone
+from ..db import Alert, Family, FamilyInvite, User, get_session, now
 from ..hub import hub
-from .common import alert_dict, family_ids, public_user, push_alert
+from .common import alert_dict, family_ids, iso, public_user, push_alert
 
 router = APIRouter(prefix="/api", tags=["people"])
 
@@ -37,10 +38,26 @@ class JoinFamily(BaseModel):
     code: str
 
 
+def _invite_dict(s: Session, i: FamilyInvite) -> dict:
+    by = s.get(User, i.invited_by)
+    f = s.get(Family, i.family_id)
+    return {"id": i.id, "family_id": i.family_id, "family_name": f.name if f else None, "name": i.name,
+            "phone": i.phone, "relation": i.relation, "invited_by": by.name if by else None,
+            "status": i.status, "created_at": iso(i.created_at)}
+
+
 def _family_view(s: Session, f: Family) -> dict:
     members = s.exec(select(User).where(User.family_id == f.id)).all()
+    pending = s.exec(select(FamilyInvite).where(FamilyInvite.family_id == f.id, FamilyInvite.status == "pending")).all()
     return {"id": f.id, "name": f.name, "invite_code": f.invite_code, "owner_id": f.owner_id,
-            "members": [public_user(m) for m in members]}
+            "members": [public_user(m) for m in members], "pending": [_invite_dict(s, i) for i in pending]}
+
+
+def _mark_joined(s: Session, family_id: str, phone: str):
+    for i in s.exec(select(FamilyInvite).where(FamilyInvite.family_id == family_id, FamilyInvite.phone == phone,
+                                               FamilyInvite.status == "pending")).all():
+        i.status = "joined"
+        s.add(i)
 
 
 @router.post("/family")
@@ -66,8 +83,83 @@ async def join_family(body: JoinFamily, me: User = Depends(current_user), s: Ses
         raise HTTPException(404, "Invite code not found")
     u.family_id = f.id
     s.add(u)
+    _mark_joined(s, f.id, u.phone)
     s.commit()
     await hub.send_many(family_ids(s, f.id), {"type": "family_updated"}, exclude=u.id)
+    return _family_view(s, f)
+
+
+# ------------------------------------------------------------------ add a family member by phone number
+class AddMember(BaseModel):
+    name: str
+    phone: str
+    relation: str = "member"
+
+
+@router.post("/family/{family_id}/members")
+async def add_member(family_id: str, body: AddMember, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    if me.family_id != family_id:
+        raise HTTPException(403, "You are not in this family circle.")
+    f = s.get(Family, family_id)
+    phone = normalize(body.phone)
+    name = body.name.strip() or phone
+    if not valid_phone(phone):
+        raise HTTPException(400, "Enter a valid mobile number (10 digits, or with country code).")
+    if phone == me.phone:
+        raise HTTPException(400, "That is your own number.")
+    if s.exec(select(User).where(User.family_id == family_id, User.phone == phone)).first():
+        raise HTTPException(409, f"{name} is already in your family circle.")
+    inv = s.exec(select(FamilyInvite).where(FamilyInvite.family_id == family_id, FamilyInvite.phone == phone)).first()
+    inv = inv or FamilyInvite(family_id=family_id, phone=phone, name=name, invited_by=me.id)
+    inv.name, inv.relation, inv.status, inv.invited_by = name, body.relation, "pending", me.id
+    s.add(inv)
+    s.commit()
+    s.refresh(inv)
+    target = s.exec(select(User).where(User.phone == phone)).first()
+    if target:   # already on VoiceGuard: ask them on their phone now (push if the app is closed)
+        await hub.deliver(target.id, {"type": "family_invite", "invite": _invite_dict(s, inv)})
+    await hub.send_many(family_ids(s, family_id), {"type": "family_updated"}, exclude=me.id)
+    return _family_view(s, f) | {"added": _invite_dict(s, inv), "on_voiceguard": target is not None}
+
+
+@router.delete("/family/{family_id}/invites/{invite_id}")
+def remove_invite(family_id: str, invite_id: int, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    if me.family_id != family_id:
+        raise HTTPException(403, "You are not in this family circle.")
+    inv = s.get(FamilyInvite, invite_id)
+    if inv and inv.family_id == family_id:
+        s.delete(inv)
+        s.commit()
+    return _family_view(s, s.get(Family, family_id))
+
+
+@router.get("/invites")
+def my_invites(me: User = Depends(current_user), s: Session = Depends(get_session)):
+    """Family circles that added this (OTP-verified) phone number."""
+    rows = s.exec(select(FamilyInvite).where(FamilyInvite.phone == me.phone, FamilyInvite.status == "pending")).all()
+    return [_invite_dict(s, i) for i in rows if i.family_id != me.family_id]
+
+
+@router.post("/invites/{invite_id}/{answer}")
+async def answer_invite(invite_id: int, answer: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    inv = s.get(FamilyInvite, invite_id)
+    if not inv or inv.phone != me.phone or inv.status != "pending":
+        raise HTTPException(404, "This invitation is not for you or has already been answered.")
+    if answer == "decline":
+        inv.status = "declined"
+        s.add(inv)
+        s.commit()
+        return {"ok": True}
+    if answer != "accept":
+        raise HTTPException(400, "answer must be accept or decline")
+    f = s.get(Family, inv.family_id)
+    if not f:
+        raise HTTPException(404, "That family circle no longer exists.")
+    me.family_id = f.id
+    s.add(me)
+    _mark_joined(s, f.id, me.phone)
+    s.commit()
+    await hub.send_many(family_ids(s, f.id), {"type": "family_updated"}, exclude=me.id)
     return _family_view(s, f)
 
 

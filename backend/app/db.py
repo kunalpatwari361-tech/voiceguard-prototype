@@ -48,6 +48,20 @@ class Family(SQLModel, table=True):
     created_at: dt.datetime = Field(default_factory=now)
 
 
+class FamilyInvite(SQLModel, table=True):
+    """A family member added by phone number. They join only after proving the number (OTP sign-in) and tapping
+    Join – joining shares location and call status, so it must be their choice. Until then SMS / WhatsApp
+    alerts from "Tell family" still reach that number."""
+    id: int | None = Field(default=None, primary_key=True)
+    family_id: str = Field(index=True)
+    phone: str = Field(index=True)
+    name: str
+    relation: str = "member"
+    invited_by: str
+    status: str = "pending"            # pending / joined / declined
+    created_at: dt.datetime = Field(default_factory=now)
+
+
 class ScamReport(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     number: str = Field(index=True)

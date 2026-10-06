@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 
 from ..ai.number_info import normalize
 from ..auth import bearer, check_otp, current_user, issue_token, revoke_token, send_otp, token_hash, valid_phone
-from ..db import PushToken, User, get_session
+from ..db import FamilyInvite, PushToken, User, get_session
 from .common import public_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -50,7 +50,9 @@ def otp_verify(body: OtpVerify, s: Session = Depends(get_session)):
     s.add(u)
     s.commit()
     s.refresh(u)
-    return {"token": issue_token(s, u.id), "user": public_user(u), "verified": True}
+    invites = s.exec(select(FamilyInvite).where(FamilyInvite.phone == phone, FamilyInvite.status == "pending")).all()
+    return {"token": issue_token(s, u.id), "user": public_user(u), "verified": True,
+            "invites": len([i for i in invites if i.family_id != u.family_id])}
 
 
 @router.get("/me")

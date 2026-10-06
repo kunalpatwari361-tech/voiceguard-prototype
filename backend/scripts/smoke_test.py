@@ -83,6 +83,26 @@ with TestClient(app) as c:
     check("family circle", len(fam["members"]) == 2, fam["invite_code"])
     check("outsider cannot read family -> 403", c.get(f"/api/family/{fam['id']}", headers=hm).status_code == 403)
 
+    # Add a family member by phone number: pending until THEY verify that number and tap Join
+    r = c.post(f"/api/family/{fam['id']}/members", json={"name": "Mummy", "phone": "9876500003", "relation": "Parent"}, headers=hp).json()
+    check("add member by number (already on VoiceGuard)", r.get("on_voiceguard") is True and any(p["phone"] == "+919876500003" for p in r["pending"]))
+    r = c.post(f"/api/family/{fam['id']}/members", json={"name": "Dadi", "phone": "9876500077"}, headers=hp).json()
+    check("add member by number (not on VoiceGuard yet)", r.get("on_voiceguard") is False and len(r["pending"]) == 2)
+    check("cannot add to someone else's family -> 403",
+          c.post(f"/api/family/{fam['id']}/members", json={"name": "X", "phone": "9876500088"}, headers=hm).status_code == 403)
+    check("already a member -> 409",
+          c.post(f"/api/family/{fam['id']}/members", json={"name": "Rahul", "phone": "9876500002"}, headers=hp).status_code == 409)
+    inv = c.get("/api/invites", headers=hm).json()
+    check("invitee sees the invitation", len(inv) == 1 and inv[0]["invited_by"] == "Papa", inv[0].get("family_name") if inv else "")
+    check("only the invited number can accept", c.post(f"/api/invites/{inv[0]['id']}/accept", headers=hr).status_code == 404)
+    j = c.post(f"/api/invites/{inv[0]['id']}/accept", headers=hm).json()
+    check("invitee joins after tapping Join", len(j["members"]) == 3 and all(p["phone"] != "+919876500003" for p in j["pending"]))
+    mummy_id = c.get("/api/auth/me", headers=hm).json()["id"]
+    c.post(f"/api/family/leave/{mummy_id}", headers=hm)          # back to Papa + Rahul for the tests below
+    dadi = [p for p in j["pending"] if p["phone"] == "+919876500077"][0]
+    r = c.delete(f"/api/family/{fam['id']}/invites/{dadi['id']}", headers=hp).json()
+    check("remove a pending member", r["pending"] == [] and len(r["members"]) == 2)
+
     # Rahul enrols a voice print from a real human clip
     real = Path(r"K:\vgtools\eval\real\asr_1.flac").read_bytes()
     r = c.post(f"/api/voiceprint/{rahul['id']}", files={"file": ("a.flac", real)}, data={"reset": "true"}, headers=hr)

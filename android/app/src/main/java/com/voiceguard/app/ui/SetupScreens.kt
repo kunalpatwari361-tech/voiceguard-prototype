@@ -187,7 +187,9 @@ fun SetupScreen(onDone: () -> Unit) {
                 val f = Sync.cachedFamily()
                 Text("✓ ${f.str("name") ?: tr("Family", "परिवार")} · " + tr("invite code", "इनवाइट कोड") + " ${f.str("invite_code") ?: ""}", color = VG.green)
             } else {
-                Text(tr("One person creates the circle, others join with the 6-digit code.", "एक व्यक्ति सर्कल बनाए, बाकी 6 अंकों के कोड से जुड़ें।"), color = VG.muted)
+                InvitesCard { step = 3 }
+                Text(tr("One person creates the circle and adds the others by phone number (or they join with the 6-digit code).",
+                    "एक व्यक्ति सर्कल बनाए और बाकी को फ़ोन नंबर से जोड़े (या वे 6 अंकों के कोड से जुड़ें)।"), color = VG.muted)
                 BigButton(tr("Create family circle", "परिवार सर्कल बनाएं"), enabled = busy == null) {
                     scope.launch {
                         runCatching { Api.post("/api/family", json("user_id" to Prefs.userId, "name" to "${Prefs.name}'s family")).asObj() }

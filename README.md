@@ -138,8 +138,9 @@ Then build the APK with `build_app.bat` (or open `android/` in Android Studio an
 3. **Install** – double-click `install_app.bat` (installs the APK and links each phone to the server over USB).
    Re-run `connect_phones.bat` whenever you re-plug a phone.
 4. **Set up** – on Papa's phone: name, number, role *Parent* → **Send OTP** → type the 6-digit code →
-   *Create family circle* → note the 6-digit invite code.
-   On Rahul's phone: role *Son/Daughter* → *Join* with the code. Tap *Allow* on every permission row
+   *Create family circle*. Then **Family → Add family member** → pick Rahul from contacts (or type his number) →
+   send him the invite by SMS / WhatsApp.
+   On Rahul's phone: sign in with *his* number → the invitation appears → **Join** (or join with the 6-digit code). Tap *Allow* on every permission row
    (Call screening, Usage access, Display over other apps, Full-screen alerts).
 5. On Rahul's phone: *My Voice Print* → read 3 sentences.
 
@@ -284,7 +285,7 @@ One UI may hold pushes for "sleeping" apps.
 | # | Feature | Status | Where |
 |---|---|---|---|
 | 1 | VoiceGuard Dialer | Real: default Phone app – keypad (T9 search), real call log, phone contacts, caller ID card, in-call keypad/hold/mute/speaker | `ui/DialerScreen.kt`, `data/Contacts.kt`, `ui/InCallActivity.kt`, `telecom/CallerIdOverlay.kt` |
-| 2 | Family Circle | Real | `routers/people.py`, `ui/FamilyScreens.kt` |
+| 2 | Family Circle | Real: add members by phone number (they confirm with Join on their own verified number), or family code | `routers/people.py`, `ui/FamilyScreens.kt`, `ui/FamilyAdd.kt` |
 | 3 | AI Voice Detector | Real (trained model) | `ai/models.py`, `training/train_detector.py` |
 | 4 | Reverse Engineering Engine | Real | `ai/fingerprints.py` |
 | 5 | Source Tracing | Heuristic prototype | `ai/source_trace.py` |

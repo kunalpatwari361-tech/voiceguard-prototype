@@ -54,6 +54,7 @@ import androidx.core.content.ContextCompat
 import com.voiceguard.app.data.Numbers
 import com.voiceguard.app.data.Prefs
 import com.voiceguard.app.data.Sync
+import com.voiceguard.app.data.objs
 import com.voiceguard.app.data.str
 import com.voiceguard.app.service.Loc
 import com.voiceguard.app.telecom.CallManager
@@ -72,7 +73,9 @@ object FamilyMessage {
 
     /** (name, phone) of everyone else in the family circle. */
     fun recipients(): List<Pair<String, String>> =
-        Sync.others().mapNotNull { m -> m.str("phone")?.let { p -> (m.str("name") ?: Numbers.pretty(p)) to p } }
+        (Sync.others() + Sync.cachedFamily().objs("pending"))     // members added by number get SMS/WhatsApp too
+            .mapNotNull { m -> m.str("phone")?.let { p -> (m.str("name") ?: Numbers.pretty(p)) to p } }
+            .distinctBy { Numbers.normalize(it.second) }
 
     fun text(ctx: Context, number: String?, claimed: String?, score: Int?): String {
         val me = Prefs.name ?: "Your family member"
@@ -242,8 +245,8 @@ private fun openWhatsApp(ctx: Context, p: Pair<String, String>, text: String, do
          else false to tr("WhatsApp is not installed. Use SMS instead.", "WhatsApp इंस्टॉल नहीं है। SMS इस्तेमाल करें।"))
 }
 
-private fun noFamily() = tr("No family members yet – open Family Circle and share your invite code.",
-    "अभी परिवार में कोई नहीं – परिवार सर्कल खोलकर इनवाइट कोड भेजें।")
+private fun noFamily() = tr("No family members yet – open Family and tap \"Add family member\".",
+    "अभी परिवार में कोई नहीं – परिवार खोलकर \"परिवार का सदस्य जोड़ें\" दबाएं।")
 
 @Composable
 private fun RoundAction(icon: ImageVector, label: String, color: Color, onClick: () -> Unit) {
