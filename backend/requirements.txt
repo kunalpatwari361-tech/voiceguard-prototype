@@ -1,17 +1,27 @@
-torch
-transformers
-huggingface_hub
-fastapi
-uvicorn[standard]
-python-multipart
-numpy
-scipy
-soundfile
-soxr
-librosa
-praat-parselmouth
-sqlmodel
-anthropic
-python-dotenv
-scikit-learn
-pyarrow
+# VoiceGuard server – exact versions this prototype was built and tested with (Python 3.14, Windows 11, CPU).
+# Install:  python -m venv .venv  &&  .venv\Scripts\pip install -r requirements.txt
+# Note: SciPy is NOT needed at runtime (phone-line filters are NumPy FFT), which keeps the server working
+# when Windows Smart App Control blocks SciPy's compiled files.
+
+# AI runtime
+torch==2.14.1                 # CPU build is enough (WavLM, Whisper)
+transformers==5.18.0
+huggingface_hub==1.33.0
+
+# Web server
+fastapi==0.142.2
+uvicorn[standard]==0.54.0     # includes websockets for the live family link and HD call relay
+python-multipart==0.0.32      # audio uploads
+python-dotenv==1.2.4
+
+# Audio / signal processing
+numpy==2.5.3
+soundfile==0.14.0             # libsndfile 1.2.2: WAV/FLAC/OGG-Opus/MP3 read + real Opus/MP3 encoding
+soxr==1.1.0                   # high-quality resampling
+praat-parselmouth==0.4.7      # Praat: jitter, shimmer, HNR, formants (Reverse Engineering Engine)
+
+# Storage
+sqlmodel==0.0.47              # SQLite via SQLAlchemy 2.0
+
+# Optional: deeper scam-talk check with Claude (used only when ANTHROPIC_API_KEY is set)
+anthropic==1.11.0

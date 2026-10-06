@@ -1,0 +1,7 @@
+# Extra packages for re-training the AI-voice detector and the evaluation scripts (backend/training, backend/scripts).
+# Install on top of the server:  .venv\Scripts\pip install -r requirements-train.txt
+# scikit-learn pulls in SciPy; if Windows Smart App Control blocks SciPy, train on another machine
+# (or a PC where Smart App Control is off) and copy app/ai/weights/vg_detector.npz back.
+-r requirements.txt
+scikit-learn==1.9.1           # logistic-regression head + scaler for the VoiceGuard detector
+pyarrow==25.0.1               # reads the LibriSpeech sample parquet
