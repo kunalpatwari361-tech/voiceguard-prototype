@@ -112,12 +112,12 @@ acts as "Rahul's phone" (online, not on a call, voice print saved, receives aler
 
 | # | Feature | Status | Where |
 |---|---|---|---|
-| 1 | VoiceGuard Dialer | Real (default phone app role) | `telecom/CallManager.kt`, `ui/InCallActivity.kt`, `ui/HomeScreens.kt` |
+| 1 | VoiceGuard Dialer | Real: default Phone app – keypad (T9 search), real call log, phone contacts, caller ID card, in-call keypad/hold/mute/speaker | `ui/DialerScreen.kt`, `data/Contacts.kt`, `ui/InCallActivity.kt`, `telecom/CallerIdOverlay.kt` |
 | 2 | Family Circle | Real | `routers/people.py`, `ui/FamilyScreens.kt` |
 | 3 | AI Voice Detector | Real (trained model) | `ai/models.py`, `training/train_detector.py` |
 | 4 | Reverse Engineering Engine | Real | `ai/fingerprints.py` |
 | 5 | Source Tracing | Heuristic prototype | `ai/source_trace.py` |
-| 6 | Live Call Check | Real on HD/demo calls; speaker-mode on normal calls* | `routers/hdcall.py`, `ui/CheckScreen.kt` |
+| 6 | Live Call Check | Real time: HD/demo calls fully; normal calls via loudspeaker every 6 s (auto for unknown callers)* | `ui/LiveCall.kt`, `routers/hdcall.py`, `ui/CheckScreen.kt` |
 | 7 | Voice Note Check | Real (share WhatsApp audio to app) | `audio/Decoder.kt`, `ui/CheckScreen.kt` |
 | 8 | Are You Really Calling? | Real | `routers/verify.py`, `ui/CallTools.kt`, `ui/HdScreens.kt` |
 | 9 | Family Location Check | Real (GPS + map) | `service/Loc.kt`, `ui/FamilyScreens.kt` |
@@ -128,7 +128,7 @@ acts as "Rahul's phone" (online, not on a call, voice print saved, receives aler
 | 14 | Scam Words Alert | Real (Whisper + rules, optional Claude) | `ai/scam_text.py` |
 | 15 | Number Info | Real (prefix rules + community data) | `ai/number_info.py` |
 | 16 | Final Risk Score | Real | `ai/risk.py` |
-| 17 | Family Alert | Real (push over live link) | `routers/common.py`, `service/GuardService.kt` |
+| 17 | Family Alert | Automatic: DANGER result, reported/high-risk caller, fake "Are you calling?", Panic – with a Call button | `routers/common.py`, `service/GuardService.kt` |
 | 18 | Call-Back Alert | Real | `service/GuardService.kt (CallWatch)`, `routers/verify.py` |
 | 19 | Panic Pause | Real (usage access + overlay) | `service/GuardService.kt`, `ui/PanicPauseActivity.kt` |
 | 20 | Save Evidence | Real | `routers/evidence.py` |

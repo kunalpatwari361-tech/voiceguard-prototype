@@ -56,6 +56,7 @@ object CallManager {
         service?.setAudioRoute(if (speaker.value) CallAudioState.ROUTE_SPEAKER else CallAudioState.ROUTE_EARPIECE)
     }
     fun dtmf(c: Char) = call.value?.run { playDtmfTone(c); stopDtmfTone() }
+    fun toggleHold() = call.value?.run { if (state == Call.STATE_HOLDING) unhold() else hold() }
 }
 
 /** VoiceGuard Dialer (feature 1): our in-call screen with the scam tools built in. */

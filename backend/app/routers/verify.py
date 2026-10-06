@@ -9,7 +9,7 @@ from sqlmodel import Session
 from ..ai.number_info import normalize
 from ..db import get_session
 from ..hub import hub
-from .common import public_user, push_alert, user_or_404
+from .common import family_ids, public_user, push_alert, user_or_404
 
 router = APIRouter(prefix="/api/verify", tags=["verify"])
 
@@ -65,6 +65,13 @@ async def ask(body: Ask, s: Session = Depends(get_session)):
                               f"Please call {asker.name} now on their saved number.",
                          payload={"asker_id": asker.id, "asker_name": asker.name, "asker_phone": asker.phone,
                                   "number": number})
+        # Everyone else in the family hears about the fake call too.
+        for uid in family_ids(s, asker.family_id):
+            if uid not in (asker.id, claimed.id):
+                await push_alert(s, family_id=asker.family_id, from_user_id=asker.id, to_user_id=uid, kind="scam_call",
+                                 title=f"Fake call: someone is pretending to be {claimed.name} to {asker.name}",
+                                 body=f"{claimed.name}'s own phone says it is not them. Call {asker.name} now.",
+                                 payload={"number": number, "victim_phone": asker.phone, "from_name": asker.name})
     msg = {
         "yes": (f"{claimed.name} confirmed: it is really them.", f"{claimed.name} ने पुष्टि की: यह सच में वही हैं।"),
         "no": (f"{claimed.name} is NOT calling you. This call is fake.", f"{claimed.name} आपको कॉल नहीं कर रहे। यह कॉल नकली है।"),

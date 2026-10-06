@@ -24,6 +24,7 @@ import com.voiceguard.app.data.Sync
 import com.voiceguard.app.data.json
 import com.voiceguard.app.data.obj
 import com.voiceguard.app.data.str
+import com.voiceguard.app.telecom.CallerIdOverlay
 import com.voiceguard.app.ui.PanicPauseActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -87,6 +88,11 @@ class GuardService : LifecycleService() {
                     "impersonation" -> Notify.alert(this, "⚠ " + (a.str("title") ?: ""), a.str("body") ?: "",
                         p.str("asker_phone"), "Call ${p.str("asker_name") ?: "them"} now")
                     "cyber_cell" -> Notify.alert(this, a.str("title") ?: "", a.str("body") ?: "", "1930", "Call 1930")
+                    "scam_call", "panic", "bank_hold" -> {
+                        val victim = Sync.member(a.str("from_user_id"))
+                        Notify.alert(this, "⚠ " + (a.str("title") ?: ""), a.str("body") ?: "",
+                            victim?.str("phone") ?: p.str("victim_phone"), "Call ${victim?.str("name") ?: p.str("from_name") ?: "them"} now")
+                    }
                     else -> Notify.alert(this, a.str("title") ?: "VoiceGuard alert", a.str("body") ?: "")
                 }
             }
@@ -185,6 +191,7 @@ object CallWatch {
 
     fun onState(ctx: Context, state: Int) {
         Live.send(json("type" to "call_state", "state" to name(state)))
+        if (state != TelephonyManager.CALL_STATE_RINGING) CallerIdOverlay.hide()
         if (last == TelephonyManager.CALL_STATE_OFFHOOK && state == TelephonyManager.CALL_STATE_IDLE) onCallEnded(ctx)
         last = state
     }

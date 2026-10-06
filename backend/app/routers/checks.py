@@ -4,6 +4,7 @@ Number Info (15), Final Risk Score (16), Spam / Block / Community list (24-26)."
 import asyncio
 import datetime as dt
 import json
+import time
 
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -16,7 +17,7 @@ from ..ai.audio_io import load_audio
 from ..ai.pipeline import _clean, analyze_voice
 from ..db import BlockedNumber, RiskEvent, ScamReport, User, get_session, now
 from ..hub import hub
-from .common import age_min, family_ids, iso, user_or_404
+from .common import age_min, family_ids, iso, push_alert, user_or_404
 
 router = APIRouter(prefix="/api", tags=["checks"])
 
@@ -89,7 +90,29 @@ async def analyze(file: UploadFile = File(...),
         s.add(RiskEvent(user_id=user.id, score=result["risk"]["score"], level=result["risk"]["level"],
                         number=number_info.normalize(number) if number else None, source=source))
         s.commit()
+    if user and user.family_id and result["risk"]["level"] == "danger" and _should_alert(user.id, number):
+        # Family Alert (17): everyone in the circle hears about it at once, without the victim doing anything.
+        what = {"voice_note": "received a suspicious voice note", "demo_call": "is on a (demo) scam call"}.get(
+            source, "is on a suspected scam call")
+        body = f"Risk {result['risk']['score']}/100" + (f" from {number_info.normalize(number)}" if number else "") +             (f". The caller pretends to be {claimed.name}" if claimed else "") + f". Call {user.name} now."
+        await push_alert(s, family_id=user.family_id, from_user_id=user.id, kind="scam_call",
+                         title=f"{user.name} {what}", body=body,
+                         payload={"number": number, "score": result["risk"]["score"], "victim_phone": user.phone,
+                                  "from_name": user.name})
     return result
+
+
+_last_alert: dict[tuple[str, str], float] = {}
+
+
+def _should_alert(user_id: str, number: str | None) -> bool:
+    """One automatic family alert per caller every 10 minutes (each analysis pass would otherwise re-alert)."""
+    key = (user_id, number or "")
+    now_s = time.time()
+    if now_s - _last_alert.get(key, 0) < 600:
+        return False
+    _last_alert[key] = now_s
+    return True
 
 
 # ------------------------------------------------------------------ voice test

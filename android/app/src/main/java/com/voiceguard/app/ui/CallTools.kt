@@ -77,9 +77,10 @@ class CallToolsState(val number: String?, claimedId: String?, val source: String
     /** Quick pass first (voice checks, ~5 s), then the full pass with speech-to-text + scam words. */
     private var rerun = false
 
-    suspend fun analyze() {
+    /** [withWords] = false skips speech-to-text (fast, used every few seconds by the live call check). */
+    suspend fun analyze(withWords: Boolean = true) {
         val a = audio ?: run { err = tr("No caller audio yet.", "अभी कॉलर की आवाज़ नहीं है।"); return }
-        if (analyzing) { rerun = true; return }   // newer audio/signals arrived: run again when this pass ends
+        if (analyzing) { if (withWords) rerun = true; return }   // newer audio/signals arrived: run again when this pass ends
         analyzing = true; err = null
         val wav = Wav.encode(a)
         val fields = mapOf(
@@ -90,9 +91,11 @@ class CallToolsState(val number: String?, claimedId: String?, val source: String
         phase = tr("AI is checking the voice…", "AI आवाज़ जाँच रहा है…")
         runCatching { Api.upload("/api/analyze", fields + ("skip_asr" to true), wav).asObj() }
             .onSuccess { if (it.bool("ok") != false || analysis == null) analysis = it }.onFailure { err = it.message }
-        phase = tr("Listening to what the caller said (scam words)…", "कॉलर की बातें सुन रहे हैं (ठगी शब्द)…")
-        runCatching { Api.upload("/api/analyze", fields, wav).asObj() }
-            .onSuccess { analysis = it }.onFailure { err = it.message }
+        if (withWords) {
+            phase = tr("Listening to what the caller said (scam words)…", "कॉलर की बातें सुन रहे हैं (ठगी शब्द)…")
+            runCatching { Api.upload("/api/analyze", fields, wav).asObj() }
+                .onSuccess { analysis = it }.onFailure { err = it.message }
+        }
         analyzing = false
         if (rerun) { rerun = false; analyze() }
     }
