@@ -8,7 +8,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 # Keep the ~3 GB of Hugging Face models off the C: drive.
-os.environ.setdefault("HF_HOME", os.getenv("VG_HF_HOME", r"K:\vgtools\hf"))
+_hf = os.getenv("VG_HF_HOME") or (r"K:\vgtools\hf" if Path(r"K:\vgtools").exists() else None)
+if _hf:
+    os.environ.setdefault("HF_HOME", _hf)
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
 DATA_DIR = BASE_DIR / "data"
