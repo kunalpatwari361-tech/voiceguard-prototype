@@ -17,7 +17,8 @@ from .ai import models
 from .db import Session, User, engine, init_db, now
 from .hub import hub
 from .auth import user_for_token
-from .routers import auth_routes, checks, evidence, future, hdcall, people, verify
+from . import push
+from .routers import auth_routes, checks, evidence, future, hdcall, people, push_routes, verify
 from .routers.common import iso
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -35,7 +36,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="VoiceGuard API", version="0.1.0", lifespan=lifespan,
               description="Prototype backend for the VoiceGuard anti voice-clone scam app.")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-for r in (auth_routes.router, people.router, checks.router, verify.router, hdcall.router, evidence.router, future.router):
+for r in (auth_routes.router, push_routes.router, people.router, checks.router, verify.router, hdcall.router,
+          evidence.router, future.router):
     app.include_router(r)
 
 demo_dir = config.BASE_DIR / "demo_audio"
@@ -45,7 +47,7 @@ app.mount("/demo", StaticFiles(directory=demo_dir), name="demo")
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "models": models.status(), "time": iso(now())}
+    return {"ok": True, "models": models.status(), "push": push.status(), "time": iso(now())}
 
 
 @app.get("/api/demo/clips")
@@ -87,9 +89,9 @@ async def live(ws: WebSocket, user_id: str, token: str | None = None):
                 s.add(u)
                 s.commit()
             if t == "location" and msg.get("request_id"):
-                hub.resolve(msg["request_id"], True)
-            elif t == "verify_answer":
-                hub.resolve(msg.get("request_id", ""), msg.get("answer"))
+                hub.resolve(msg["request_id"], True, by=user_id)
+            elif t == "verify_answer" and msg.get("answer") in ("yes", "no"):
+                hub.resolve(msg.get("request_id", ""), msg["answer"], by=user_id)
             elif t in ("hd_answer", "hd_hangup"):
                 await hdcall.on_control(user_id, msg)
     except WebSocketDisconnect:

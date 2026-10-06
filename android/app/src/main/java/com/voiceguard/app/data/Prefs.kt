@@ -49,6 +49,9 @@ object Prefs {
     var role by str("role", "member")
     var familyId by str("family_id")
     var familyJson by str("family_json")
+    /** Firebase settings handed out by our server (public values) and its push status text. */
+    var pushConfig by str("push_config")
+    var pushStatus by str("push_status")
 
     var hindi by bool("hindi", false)
     var autoCheck by bool("auto_check", true)

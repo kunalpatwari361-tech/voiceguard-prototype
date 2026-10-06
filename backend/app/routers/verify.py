@@ -2,7 +2,7 @@
 import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
@@ -22,6 +22,21 @@ class Ask(BaseModel):
     wait_s: int = 30
 
 
+class Answer(BaseModel):
+    request_id: str
+    answer: str
+
+
+@router.post("/answer")
+def give_answer(body: Answer, me: User = Depends(current_user)):
+    """The asked person's reply when it comes from a notification button rather than the live link."""
+    if body.answer not in ("yes", "no"):
+        raise HTTPException(400, "answer must be yes or no")
+    if not hub.resolve(body.request_id, body.answer, by=me.id):
+        raise HTTPException(404, "This question has expired or was not sent to you.")
+    return {"ok": True}
+
+
 @router.post("/ask")
 async def ask(body: Ask, me: User = Depends(current_user), s: Session = Depends(get_session)):
     require_self(me, body.asker_id)
@@ -30,6 +45,7 @@ async def ask(body: Ask, me: User = Depends(current_user), s: Session = Depends(
     require_family(me, claimed)
     number = normalize(body.number) if body.number else None
     online = hub.online(claimed.id)
+    reachable = hub.reachable(claimed.id)   # online, or the app is closed but a push can wake it
     auto = None
     if online and claimed.call_state in ("idle", "ringing", "offhook"):
         in_call = claimed.call_state == "offhook"
@@ -43,21 +59,21 @@ async def ask(body: Ask, me: User = Depends(current_user), s: Session = Depends(
 
     rid = uuid.uuid4().hex[:10]
     answer, source = "no_answer", "offline"
-    if online:
-        fut = hub.expect(rid)
-        await hub.send(claimed.id, {"type": "verify_request", "request_id": rid,
-                                    "from": {"id": asker.id, "name": asker.name}, "number": number,
-                                    "auto_in_call": auto["in_call"] if auto else None})
+    if reachable:
+        fut = hub.expect(rid, owner=claimed.id)
+        await hub.deliver(claimed.id, {"type": "verify_request", "request_id": rid,
+                                       "from": {"id": asker.id, "name": asker.name}, "number": number,
+                                       "auto_in_call": auto["in_call"] if auto else None})
         if auto and not auto["in_call"]:
             # The phone itself proves it: no call in progress, so this caller cannot be them.
             answer, source = "no", "auto"
-            asyncio.get_running_loop().call_later(120, lambda: hub.waiters.pop(rid, None))
+            asyncio.get_running_loop().call_later(120, lambda: hub.forget(rid))
         else:
             try:
                 answer = await asyncio.wait_for(fut, timeout=body.wait_s)
-                source = "person"
+                source = "person" if online else "person_push"
             except asyncio.TimeoutError:
-                hub.waiters.pop(rid, None)
+                hub.forget(rid)
                 answer, source = "no_answer", "timeout"
 
     if answer == "no":

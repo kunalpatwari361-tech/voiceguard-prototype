@@ -42,6 +42,7 @@ import com.voiceguard.app.data.Api
 import com.voiceguard.app.data.Live
 import com.voiceguard.app.data.Numbers
 import com.voiceguard.app.data.Prefs
+import com.voiceguard.app.data.Reply
 import com.voiceguard.app.data.Sync
 import com.voiceguard.app.data.asObj
 import com.voiceguard.app.data.bi
@@ -137,10 +138,18 @@ fun HdCallScreen(callIdIn: String?, peerId: String?, peerName: String?, incoming
         when (status) {
             "incoming" -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 BigButton(tr("Decline", "मना करें"), Icons.Default.Close, VG.red, modifier = Modifier.weight(1f)) {
-                    Live.send(json("type" to "hd_answer", "call_id" to callId, "accept" to false)); status = "ended"; back()
+                    val id = callId
+                    kotlinx.coroutines.MainScope().launch { Reply.hd(id, false) }
+                    status = "ended"; back()
                 }
                 BigButton(tr("Accept", "स्वीकार करें"), Icons.Default.Done, VG.green, modifier = Modifier.weight(1f)) {
-                    Live.send(json("type" to "hd_answer", "call_id" to callId, "accept" to true)); connect()
+                    scope.launch {
+                        when (val st = Reply.hd(callId, true)) {
+                            "accepted" -> connect()
+                            null -> status = "ended"
+                            else -> status = st          // e.g. missed: the caller gave up
+                        }
+                    }
                 }
             }
             "connected" -> {
@@ -174,6 +183,7 @@ fun HdCallScreen(callIdIn: String?, peerId: String?, peerName: String?, incoming
 @Composable
 fun VerifyRequestScreen(back: () -> Unit) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     val v = Shared.verify
     var answered by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { Notify.cancel(ctx, Notify.ID_VERIFY) }
@@ -184,10 +194,10 @@ fun VerifyRequestScreen(back: () -> Unit) {
             tr("A caller from ${Numbers.pretty(number)} says they are YOU.", "${Numbers.pretty(number)} से कोई कॉलर कह रहा है कि वह आप हैं।"))
         if (answered == null) {
             BigButton(tr("YES, it's me calling", "हाँ, मैं ही कॉल कर रहा हूँ"), Icons.Default.Done, VG.green) {
-                Live.send(json("type" to "verify_answer", "request_id" to rid, "answer" to "yes")); answered = "yes"
+                scope.launch { Reply.verify(rid, "yes") }; answered = "yes"
             }
             BigButton(tr("NO, it's NOT me", "नहीं, यह मैं नहीं हूँ"), Icons.Default.Close, VG.red) {
-                Live.send(json("type" to "verify_answer", "request_id" to rid, "answer" to "no")); answered = "no"
+                scope.launch { Reply.verify(rid, "no") }; answered = "no"
             }
         } else {
             Banner(if (answered == "no") tr("$from has been warned: FAKE CALL.", "$from को चेतावनी दे दी गई: नकली कॉल।")

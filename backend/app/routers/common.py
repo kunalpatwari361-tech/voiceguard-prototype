@@ -59,7 +59,7 @@ async def push_alert(s: Session, *, family_id: str | None, from_user_id: str | N
     s.refresh(a)
     msg = {"type": "alert", "alert": alert_dict(a)}
     targets = [to_user_id] if to_user_id else [u for u in family_ids(s, family_id) if u != from_user_id]
-    for uid in targets:
-        await hub.send(uid, msg)
+    reached = [uid for uid in targets if await hub.deliver(uid, msg)]
     # Tell the sender who actually got it ("Sent to 2 family members, 1 online now").
-    return alert_dict(a) | {"sent_to": len(targets), "online": sum(1 for u in targets if hub.online(u))}
+    return alert_dict(a) | {"sent_to": len(targets), "online": sum(1 for u in targets if hub.online(u)),
+                            "reached": len(reached)}

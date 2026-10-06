@@ -11,7 +11,7 @@ import time
 import uuid
 
 import numpy as np
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from sqlmodel import Session
 
@@ -59,12 +59,12 @@ async def start(body: Start, me: User = Depends(current_user), s: Session = Depe
     caller = me
     callee = s.get(User, body.callee_id)
     require_family(me, callee)
-    if not hub.online(callee.id):
+    if not hub.reachable(callee.id):
         return {"status": "offline", "message": f"{callee.name}'s VoiceGuard app is not reachable.",
                 "message_hi": f"{callee.name} का VoiceGuard ऐप अभी उपलब्ध नहीं है।"}
     c = Call(caller.id, callee.id)
     calls[c.id] = c
-    await hub.send(callee.id, {"type": "hd_incoming", "call_id": c.id, "from": {"id": caller.id, "name": caller.name}})
+    await hub.deliver(callee.id, {"type": "hd_incoming", "call_id": c.id, "from": {"id": caller.id, "name": caller.name}})
 
     async def ring_timeout():
         await asyncio.sleep(40)
@@ -76,12 +76,29 @@ async def start(body: Start, me: User = Depends(current_user), s: Session = Depe
     return {"status": "ringing", "call_id": c.id}
 
 
+class HdAnswer(BaseModel):
+    call_id: str
+    accept: bool
+
+
+@router.post("/api/hd/answer")
+async def answer(body: HdAnswer, me: User = Depends(current_user)):
+    """Accept / decline from the ringing screen (works before the live link has reconnected)."""
+    c = calls.get(body.call_id)
+    if not c or c.callee != me.id:
+        raise HTTPException(404, "This call has ended.")
+    if c.status != "ringing":
+        return {"status": c.status}
+    await on_control(me.id, {"type": "hd_answer", "call_id": c.id, "accept": body.accept})
+    return {"status": c.status}
+
+
 async def on_control(user_id: str, msg: dict):
-    """hd_answer / hd_hangup arriving on the main WebSocket."""
+    """hd_answer / hd_hangup arriving on the main WebSocket (or /api/hd/answer)."""
     c = calls.get(msg.get("call_id", ""))
-    if not c:
+    if not c or user_id not in (c.caller, c.callee):
         return
-    if msg["type"] == "hd_answer" and c.status == "ringing":
+    if msg["type"] == "hd_answer" and c.status == "ringing" and user_id == c.callee:
         c.status = "accepted" if msg.get("accept") else "declined"
         await hub.send(c.caller, {"type": "hd_status", "call_id": c.id, "status": c.status})
     elif msg["type"] == "hd_hangup":

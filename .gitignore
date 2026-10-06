@@ -1,6 +1,9 @@
 backend/.venv/
 backend/data/
 backend/.env
+# Firebase / Google keys, wherever they end up
+google-services.json
+*service-account*.json
 __pycache__/
 android/.gradle/
 android/build/

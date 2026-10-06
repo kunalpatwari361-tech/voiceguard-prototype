@@ -1,6 +1,7 @@
 """End-to-end API test with two simulated phones (Papa + Rahul). No real phones needed.
 
-Covers OTP sign-up + login tokens (and that the server refuses requests without them), then every feature.
+Covers OTP sign-up + login tokens (and that the server refuses requests without them), push notifications
+to phones whose app is closed (Firebase is simulated), then every feature.
 Run: .venv\\Scripts\\python scripts\\smoke_test.py
 """
 import json
@@ -15,12 +16,17 @@ import os  # noqa: E402
 
 os.environ["VG_WARMUP"] = "0"
 import tempfile  # noqa: E402
-os.environ["VG_DB"] = str(Path(tempfile.mkdtemp()) / "test.db")  # never touch the real database
+TMP = Path(tempfile.mkdtemp())
+os.environ["VG_DB"] = str(TMP / "test.db")  # never touch the real database
+os.environ["VG_FIREBASE_CREDENTIALS"] = str(TMP / "firebase-service-account.json")   # created later in the test
+os.environ["VG_FIREBASE_APP_CONFIG"] = str(TMP / "google-services.json")
 os.environ["VG_OTP_PROVIDER"] = "console"
 os.environ["VG_OTP_TEST_NUMBERS"] = "+919876500001:111111,+919876500002:222222"
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import auth  # noqa: E402
+from app import auth, push  # noqa: E402
+from app.db import PushToken, engine  # noqa: E402
+from sqlmodel import Session, select  # noqa: E402
 from app.main import app  # noqa: E402
 
 ok = 0
@@ -125,6 +131,70 @@ with TestClient(app) as c:
         rws.send_json({"type": "hd_hangup", "call_id": hd["call_id"]})
         check("HD call ended", pws.receive_json()["status"] == "ended")
 
+    # ---------------- push notifications (Firebase simulated): Rahul's app is CLOSED from here on
+    check("push off without Firebase files", c.get("/api/push/config", headers=hp).json()["enabled"] is False)
+    (TMP / "google-services.json").write_text(json.dumps({
+        "project_info": {"project_number": "123456789012", "project_id": "vg-test", "storage_bucket": "vg-test.appspot.com"},
+        "client": [{"client_info": {"mobilesdk_app_id": "1:123456789012:android:abc",
+                                    "android_client_info": {"package_name": "com.voiceguard.app"}},
+                    "api_key": [{"current_key": "AIza-test"}]}]}))
+    (TMP / "firebase-service-account.json").write_text(json.dumps({
+        "type": "service_account", "project_id": "vg-test", "private_key": "-----BEGIN PRIVATE KEY-----\nx\n",
+        "client_email": "push@vg-test.iam.gserviceaccount.com", "token_uri": "https://oauth2.googleapis.com/token"}))
+    pushed = []
+
+    def fake_fcm(token, msg):            # stands in for Google's FCM server
+        pushed.append((token, msg))
+        return "gone" if token.startswith("dead") else "ok"
+    push._send_one = fake_fcm
+
+    def wait_push(pred, timeout=5.0):
+        end = time.time() + timeout
+        while time.time() < end:
+            hit = [m for t, m in pushed if pred(t, m)]
+            if hit:
+                return hit[-1]
+            time.sleep(0.05)
+        return None
+
+    def push_tokens(uid):
+        with Session(engine) as s:
+            return [x.token for x in s.exec(select(PushToken).where(PushToken.user_id == uid)).all()]
+
+    cfg = c.get("/api/push/config", headers=hr).json()
+    check("push config for the app", cfg["enabled"] and cfg["android"]["sender_id"] == "123456789012", cfg["status"])
+    check("push register needs sign-in", c.post("/api/push/register", json={"token": "r" * 40}).status_code == 401)
+    c.post("/api/push/register", json={"token": "rahul-fcm-" + "x" * 40}, headers=hr)
+    c.post("/api/push/register", json={"token": "dead-fcm-" + "x" * 40}, headers=hr)
+    r = c.post("/api/alerts", json={"from_user_id": papa["id"], "kind": "scam_call", "title": "push test"}, headers=hp).json()
+    got = wait_push(lambda t, m: t.startswith("rahul") and m["type"] == "alert" and m["alert"]["title"] == "push test")
+    check("alert reaches closed app by push", r["online"] == 0 and r["reached"] == 1 and got, f"reached={r['reached']}")
+    time.sleep(0.3)
+    check("expired push token forgotten", push_tokens(rahul["id"]) == ["rahul-fcm-" + "x" * 40])
+
+    res = {}
+    t = threading.Thread(target=lambda: res.update(c.post("/api/verify/ask", json={
+        "asker_id": papa["id"], "claimed_user_id": rahul["id"], "wait_s": 10}, headers=hp).json()))
+    t.start()
+    q = wait_push(lambda t, m: m["type"] == "verify_request")
+    check("verify question pushed to closed app", q is not None)
+    check("only the asked person can answer",
+          c.post("/api/verify/answer", json={"request_id": q["request_id"], "answer": "yes"}, headers=hp).status_code == 404)
+    check("answer from notification (REST)",
+          c.post("/api/verify/answer", json={"request_id": q["request_id"], "answer": "no"}, headers=hr).status_code == 200)
+    t.join()
+    check("are you really calling (closed app, push)", res.get("answer") == "no" and res.get("source") == "person_push",
+          res.get("message", ""))
+
+    hd = c.post("/api/hd/start", json={"caller_id": papa["id"], "callee_id": rahul["id"]}, headers=hp).json()
+    ring = wait_push(lambda t, m: m["type"] == "hd_incoming" and m["call_id"] == hd.get("call_id"))
+    check("HD call rings closed app by push", hd["status"] == "ringing" and ring is not None)
+    check("caller cannot answer own HD call",
+          c.post("/api/hd/answer", json={"call_id": hd["call_id"], "accept": True}, headers=hp).status_code == 404)
+    check("HD answer from notification (REST)",
+          c.post("/api/hd/answer", json={"call_id": hd["call_id"], "accept": False}, headers=hr).json()["status"] == "declined")
+    check("health shows push on", c.get("/api/health").json()["push"] == "on")
+
     fam = c.get(f"/api/family/{fam['id']}", headers=hp).json()
     rl = [m for m in fam["members"] if m["id"] == rahul["id"]][0]
     check("family location", rl["location"]["place"] == "Kothrud, Pune")
@@ -197,5 +267,7 @@ with TestClient(app) as c:
     # logout revokes the token
     c.post("/api/auth/logout", headers=hm)
     check("logout revokes token", c.get("/api/auth/me", headers=hm).status_code == 401)
+    c.post("/api/auth/logout", headers=hr)
+    check("logout stops pushes to that phone", push_tokens(rahul["id"]) == [])
 
 print(f"\nALL {ok} CHECKS PASSED")

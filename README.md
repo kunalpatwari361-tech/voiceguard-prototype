@@ -15,6 +15,9 @@ Stops AI voice-clone scam calls ("Papa, I had an accident, send money"). Android
  │ HD call audio (16 kHz)               │ ◄─ WebSocket ──► │ /ws/hd        HD call relay + live AI    │
  │ Evidence · 1930 · Chakshu            │                  │ SQLite · models cached in K:\vgtools\hf  │
  └──────────────────────────────────────┘                  └──────────────────────────────────────────┘
+        ▲  app closed? alerts, "are you calling?" and HD rings          │
+        └──────────── Firebase Cloud Messaging (push) ◄─────────────────┘
+        SMS code ◄── Twilio Verify ◄── /api/auth/otp/start (real SMS, read automatically by the app)
 ```
 
 ## Screenshots (real app, Android 17 emulator)
@@ -44,6 +47,8 @@ Stops AI voice-clone scam calls ("Papa, I had an accident, send money"). Android
 | Phone data | `ContactsContract` (contacts + caller-ID lookup) · `CallLog` (Recents) · `TelephonyCallback` (call state for "Are you really calling?") |
 | Audio | `AudioRecord` / `AudioTrack` (16 kHz PCM, `VOICE_COMMUNICATION` + echo canceller) · `MediaExtractor` + `MediaCodec` (decodes WhatsApp Opus, m4a, mp3) · `MediaPlayer` (demo calls) |
 | Notifications & overlays | Call notification with Answer / Decline / Hang up / Speaker / Mute actions · full-screen alerts · `WindowManager` overlay (Truecaller-style caller-ID card) |
+| Push (app closed) | Firebase Cloud Messaging – `firebase-messaging` 25.1.3; Firebase is set up at run time from settings the server hands out, so the APK needs no `google-services.json` |
+| OTP from SMS | Google Play services **SMS User Consent API** (`play-services-auth-api-phone` 18.1.0) – one tap on *Allow* fills in and checks the code, no SMS permission |
 | Location & maps | `LocationManager` + `Geocoder` · osmdroid 6.1.20 (OpenStreetMap, no API key) |
 | Background | Foreground service (`specialUse` + `location`) for the family link · `UsageStatsManager` (Panic Pause) · boot receiver |
 | Build | Android Gradle Plugin 8.7.3 · Gradle 8.11.1 (wrapper) · JDK 17 (Temurin 17.0.20) · compileSdk/targetSdk 35 (Android 15) · minSdk 29 (Android 10) |
@@ -57,6 +62,7 @@ Stops AI voice-clone scam calls ("Papa, I had an accident, send money"). Android
 | Web | FastAPI 0.142 · Uvicorn 0.54 (+ websockets 17.2) · Starlette 1.7 · Pydantic 2.13 · python-multipart · python-dotenv |
 | Storage | SQLModel 0.0.47 on SQLAlchemy 2.0 + SQLite (users, family, alerts, evidence, scam list) |
 | Sign-up & security | Phone-number OTP (Twilio Verify for real SMS, or demo mode) → login token; codes and tokens stored only as HMAC-SHA256 hashes; every route checks the token and that you act only for yourself / your family (httpx 0.28 for Twilio) |
+| Push notifications | Firebase Cloud Messaging HTTP v1 API – service-account JWT signed with google-auth 2.60, sent with httpx; high-priority data messages |
 | AI runtime | PyTorch 2.14.1 (CPU) · Hugging Face Transformers 5.18 · huggingface_hub 1.33 |
 | Audio & DSP | NumPy 2.5 (FFT band-pass filters – no SciPy at runtime) · soundfile 0.14 / libsndfile 1.2.2 (WAV, FLAC, OGG-Opus, MP3 + real Opus/MP3 encoding) · soxr 1.1 (resampling) · Praat via parselmouth 0.4.7 |
 | Optional LLM | Anthropic Python SDK 1.11 → `claude-opus-5-5` (only when `ANTHROPIC_API_KEY` is set) |
@@ -66,7 +72,7 @@ Stops AI voice-clone scam calls ("Papa, I had an accident, send money"). Android
 
 | Area | Technology |
 |---|---|
-| Classifier | scikit-learn 1.9 (standard scaler + logistic regression on frozen WavLM features) |
+| Classifier | Logistic regression on frozen WavLM features, fitted with PyTorch L-BFGS + a NumPy standard scaler (same maths as scikit-learn, but no SciPy – so Windows Smart App Control cannot block training) |
 | Real speech | Google FLEURS (Hindi, English, Marathi, Tamil, Telugu, Punjabi) · LibriSpeech sample (read with pyarrow 25) |
 | AI speech | Meta MMS-TTS (Hindi, English) · Microsoft SpeechT5 HiFi-GAN vocoder (re-synthesised real speech) · Windows SAPI voices |
 | Channel augmentation | G.711 phone line, AMR-like low bitrate, packet loss, real Opus (WhatsApp) and phone+Opus |
@@ -139,7 +145,9 @@ Rebuild the app after code changes with `build_app.bat`.
 acts as "Rahul's phone" (online, not on a call, voice print saved, receives alerts).
 
 **Improve the AI-voice detector:** `retrain_detector.bat` continues training with the extra Indian-language data
-(Hindi, Marathi, Tamil, Telugu, Punjabi). It resumes where it stopped; restart the server afterwards.
+(Hindi, Marathi, Tamil, Telugu, Punjabi). Feature extraction pauses by itself after 100 minutes and resumes where it
+stopped when you run it again. The result is saved as `app/ai/weights/vg_detector_candidate.npz` with a report per
+language; copy it over `vg_detector.npz` only if the report is better, then restart the server.
 
 ## Sign-up and security (OTP)
 
@@ -161,11 +169,37 @@ Every account is created by **verifying the phone number with a one-time code**;
 
 **How the code is delivered** (set in `backend/.env`, see `.env.example`):
 - **Demo mode** (default): no SMS – the code is printed in the server window and `backend\data\dev_otp.log`.
-- **Real SMS**: fill `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SID` (Twilio Verify). A Twilio trial
-  can text the numbers you verify in the Twilio console.
+- **Real SMS**: fill `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SID` (Twilio Verify). A Twilio **trial**
+  can only text numbers listed under *Phone Numbers → Verified Caller IDs* in the Twilio console – add each family
+  phone there first. The app reads the code from the SMS: Android asks *"Allow VoiceGuard to read this message?"*,
+  one tap on **Allow** fills in the code and signs in (SMS User Consent API – the app never gets SMS permission and
+  sees only that one message).
 - **Test numbers**: `VG_OTP_TEST_NUMBERS=+919876500002:246810` – fixed codes, no SMS (for judges / `sim_second_phone.bat`).
 
 Partner APIs (bank `/api/v1/enterprise/*`, telecom `/api/v1/telecom/flag`) use their own API keys instead.
+
+## Alerts when the app is closed (push notifications)
+
+The live WebSocket link is the fast path. **Alerts, "Are you really calling?" questions and HD call rings are also
+sent through Firebase Cloud Messaging (FCM)** as high-priority data messages, so they reach a phone whose app was
+swiped away or killed by the battery saver. The app shows each one once, whichever copy arrives first; answers from
+the notification buttons go back over HTTPS (`/api/verify/answer`, `/api/hd/answer`), so they work before the live
+link reconnects. A family member counts as reachable for "Are you really calling?" and HD calls if they are online
+**or** have a push token.
+
+Set-up (once, free Firebase "Spark" plan):
+1. [console.firebase.google.com](https://console.firebase.google.com) → *Add project*.
+2. *Add app → Android*, package name `com.voiceguard.app` → download **google-services.json** →
+   save it as `backend\data\google-services.json` (the app does not need it – the server hands the public values to
+   the phone after sign-in, so no rebuild).
+3. *Project settings → Service accounts → Generate new private key* → save it as
+   `backend\data\firebase-service-account.json`. This is a secret server key: keep it only on the laptop
+   (`backend/data/` is git-ignored).
+4. Restart the server; `/api/health` shows `"push": "on"`. On the phone: *Settings → Alerts when the app is closed →
+   Check & send test push*.
+
+Samsung phones: also set *Settings → Battery → Background usage limits → Never sleeping apps → VoiceGuard*, or
+One UI may hold pushes for "sleeping" apps.
 
 ## Troubleshooting
 

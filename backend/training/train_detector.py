@@ -10,8 +10,8 @@ channels real calls and voice notes go through:
 The split is by group (speaker / sentence / vocoded pair), so test sentences are never seen in training.
 
 Features are cached per (clip, condition) so adding clips or conditions only computes what is new.
-Usage: python training/train_detector.py K:\\vgtools\\data\\vgset
-Writes app/ai/weights/vg_detector.npz + vg_detector_report.json
+Usage: python training/train_detector.py K:\\vgtools\\data\\vgset [--max-minutes 100] [--out vg_detector]
+Writes app/ai/weights/<out>.npz + <out>_report.json (default out: vg_detector_candidate)
 """
 import csv
 import json
@@ -93,8 +93,60 @@ class Cache:
                          feats=np.stack(list(d.values())).astype(np.float16))
 
 
+class Scaler:
+    """Same as scikit-learn's StandardScaler (population std)."""
+
+    def fit(self, X):
+        self.mean_ = X.mean(0)
+        self.scale_ = X.std(0)
+        self.scale_[self.scale_ == 0] = 1.0
+        return self
+
+    def transform(self, X):
+        return (X - self.mean_) / self.scale_
+
+
+class LogReg:
+    """L2 logistic regression fitted with PyTorch L-BFGS – the same objective as scikit-learn's
+    LogisticRegression(C): 0.5*||w||^2 + C * sum(log-loss). No SciPy needed, so Windows Smart App Control
+    (which blocks SciPy's DLLs on this laptop) cannot stop training."""
+
+    def __init__(self, C):
+        self.C = C
+
+    def fit(self, X, y):
+        Xt = torch.tensor(X, dtype=torch.float32)
+        yt = torch.tensor(y, dtype=torch.float32)
+        w = torch.zeros(Xt.shape[1], requires_grad=True)
+        b = torch.zeros(1, requires_grad=True)
+        with torch.enable_grad():
+            opt = torch.optim.LBFGS([w, b], lr=1, max_iter=500, history_size=20, line_search_fn="strong_wolfe")
+
+            def closure():
+                opt.zero_grad()
+                loss = self.C * torch.nn.functional.binary_cross_entropy_with_logits(Xt @ w + b, yt, reduction="sum") \
+                    + 0.5 * (w @ w)
+                loss.backward()
+                return loss
+            opt.step(closure)
+        self.coef_ = w.detach().numpy()[None, :]
+        self.intercept_ = b.detach().numpy()
+        return self
+
+    def predict_proba(self, X):
+        z = X @ self.coef_[0] + self.intercept_[0]
+        p = 1 / (1 + np.exp(-z))
+        return np.stack([1 - p, p], axis=1)
+
+
 def main():
-    root = Path(sys.argv[1] if len(sys.argv) > 1 else r"K:\vgtools\data\vgset")
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("root", nargs="?", default=r"K:\vgtools\data\vgset")
+    ap.add_argument("--max-minutes", type=float, default=0, help="pause feature extraction after this long (resume later)")
+    ap.add_argument("--out", default="vg_detector_candidate", help="weights file name (vg_detector = deploy directly)")
+    a = ap.parse_args()
+    root = Path(a.root)
     rows = list(csv.DictReader(open(root / "manifest.csv", encoding="utf-8")))
     groups = sorted({r["group"] for r in rows})
     random.Random(1).shuffle(groups)
@@ -115,7 +167,12 @@ def main():
         if k % 200 == 0:
             print(f"  {k}/{len(todo)} {time.time() - t:.0f}s", flush=True)
             cache.save()
+        if a.max_minutes and time.time() - t > a.max_minutes * 60:
+            cache.save()
+            print(f"PAUSED after {k + 1}/{len(todo)} features – run again to continue.", flush=True)
+            return
     cache.save()
+    print("features complete", flush=True)
 
     feats, meta = [], []
     for r in rows:
@@ -126,27 +183,24 @@ def main():
     y = np.array([m[0] == "fake" for m in meta])
     is_test = np.array([m[3] for m in meta])
 
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.preprocessing import StandardScaler
-
     best = None
-    n_layers = feats.shape[1]
-    for layers in ([4, 5, 6], [2, 3, 4, 5, 6], list(range(n_layers))):
+    for layers in ([4, 5, 6], [2, 3, 4, 5, 6]):
         X = feats[:, layers, :].reshape(len(feats), -1)
-        sc = StandardScaler().fit(X[~is_test])
-        for C in (0.003, 0.01, 0.03):
-            clf = LogisticRegression(C=C, max_iter=3000).fit(sc.transform(X[~is_test]), y[~is_test])
+        sc = Scaler().fit(X[~is_test])
+        for C in (0.01, 0.03, 0.1):
+            clf = LogReg(C).fit(sc.transform(X[~is_test]), y[~is_test].astype(np.float32))
             p = clf.predict_proba(sc.transform(X[is_test]))[:, 1]
-            a = auc(p[y[is_test]], p[~y[is_test]])
-            print(f"  layers={layers if len(layers) < 13 else 'all'} C={C} AUC={a:.4f}", flush=True)
-            if best is None or a > best[0]:
-                best = (a, layers, C, sc, clf)
-    a, layers, C, sc, clf = best
-    print(f"\nbest layers={layers} C={C} test AUC (all conditions)={a:.4f}")
+            auc_v = auc(p[y[is_test]], p[~y[is_test]])
+            print(f"  layers={layers} C={C} AUC={auc_v:.4f}", flush=True)
+            if best is None or auc_v > best[0]:
+                best = (auc_v, layers, C, sc, clf)
+    auc_v, layers, C, sc, clf = best
+    print(f"\nbest layers={layers} C={C} test AUC (all conditions)={auc_v:.4f}")
 
     X = feats[:, layers, :].reshape(len(feats), -1)
     p = clf.predict_proba(sc.transform(X))[:, 1]
-    report = {"layers": layers, "C": C, "auc_all": round(a, 4), "clips": len(rows), "by_condition": {}, "by_source": {}}
+    report = {"layers": layers, "C": C, "auc_all": round(auc_v, 4), "clips": len(rows),
+              "by_condition": {}, "by_source": {}, "by_language": {}}
     for c in CONDS:
         m = is_test & np.array([mm[4] == c for mm in meta])
         acc = float(((p[m] >= 0.5) == y[m]).mean())
@@ -158,16 +212,24 @@ def main():
             acc = float(((p[m] >= 0.5) == y[m]).mean())
             report["by_source"][src] = {"n": int(m.sum()), "acc": round(acc, 4)}
             print(f"  source {src:16s} n={int(m.sum()):4d} acc={acc:.4f}")
+    for lang in sorted({mm[2] for mm in meta}):
+        m = is_test & np.array([mm[2] == lang for mm in meta])
+        if m.any():
+            real = m & ~y
+            report["by_language"][lang] = {"n": int(m.sum()), "acc": round(float(((p[m] >= 0.5) == y[m]).mean()), 4),
+                                           "real_kept_as_real": round(float((p[real] < 0.5).mean()), 4) if real.any() else None}
+            print(f"  lang {lang:4s} n={int(m.sum()):4d} acc={report['by_language'][lang]['acc']:.4f} "
+                  f"real-ok={report['by_language'][lang]['real_kept_as_real']}")
 
     # Refit on ALL data for the shipped model (the test numbers above stay the honest estimate).
-    sc_all = StandardScaler().fit(X)
-    clf_all = LogisticRegression(C=C, max_iter=3000).fit(sc_all.transform(X), y)
+    sc_all = Scaler().fit(X)
+    clf_all = LogReg(C).fit(sc_all.transform(X), y.astype(np.float32))
     OUT.mkdir(parents=True, exist_ok=True)
-    np.savez(OUT / "vg_detector.npz", layers=np.array(layers), mean=sc_all.mean_.astype(np.float32),
+    np.savez(OUT / f"{a.out}.npz", layers=np.array(layers), mean=sc_all.mean_.astype(np.float32),
              scale=sc_all.scale_.astype(np.float32), coef=clf_all.coef_[0].astype(np.float32),
              intercept=np.array(clf_all.intercept_, dtype=np.float32))
-    (OUT / "vg_detector_report.json").write_text(json.dumps(report, indent=1))
-    print("saved", OUT / "vg_detector.npz")
+    (OUT / f"{a.out}_report.json").write_text(json.dumps(report, indent=1))
+    print("saved", OUT / f"{a.out}.npz")
 
 
 if __name__ == "__main__":

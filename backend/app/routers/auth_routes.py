@@ -4,8 +4,8 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..ai.number_info import normalize
-from ..auth import bearer, check_otp, current_user, issue_token, revoke_token, send_otp, valid_phone
-from ..db import User, get_session
+from ..auth import bearer, check_otp, current_user, issue_token, revoke_token, send_otp, token_hash, valid_phone
+from ..db import PushToken, User, get_session
 from .common import public_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -63,4 +63,7 @@ def logout(authorization: str | None = Header(None), s: Session = Depends(get_se
     tok = bearer(authorization)
     if tok:
         revoke_token(s, tok)
+        for p in s.exec(select(PushToken).where(PushToken.auth_hash == token_hash(tok))).all():
+            s.delete(p)   # a signed-out phone must not get family alerts any more
+        s.commit()
     return {"ok": True}

@@ -140,6 +140,10 @@ def user_for_token(s: Session, tok: str | None) -> User | None:
     return s.get(User, row.user_id)
 
 
+def token_hash(tok: str) -> str:
+    return _hash("tok", tok)
+
+
 def revoke_token(s: Session, tok: str) -> None:
     row = s.exec(select(AuthToken).where(AuthToken.token_hash == _hash("tok", tok))).first()
     if row:

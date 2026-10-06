@@ -1,8 +1,11 @@
-"""Live connection hub: one WebSocket per phone for pushes (alerts, verify requests, HD call ringing)."""
+"""Live connection hub: one WebSocket per phone for pushes (alerts, verify requests, HD call ringing).
+Phones whose app is closed are reached through Firebase Cloud Messaging instead (see push.py)."""
 import asyncio
 import logging
 
 from fastapi import WebSocket
+
+from . import push
 
 log = logging.getLogger("voiceguard.hub")
 
@@ -11,6 +14,7 @@ class Hub:
     def __init__(self):
         self.conns: dict[str, set[WebSocket]] = {}
         self.waiters: dict[str, asyncio.Future] = {}   # request_id -> future (verify / location)
+        self.owners: dict[str, str] = {}               # request_id -> the only user allowed to answer it
 
     async def connect(self, user_id: str, ws: WebSocket):
         await ws.accept()
@@ -37,15 +41,38 @@ class Hub:
             if uid != exclude:
                 await self.send(uid, msg)
 
-    def expect(self, request_id: str) -> asyncio.Future:
+    def reachable(self, user_id: str) -> bool:
+        """Online now, or can be woken with a push notification."""
+        return self.online(user_id) or push.has_tokens(user_id)
+
+    async def deliver(self, user_id: str, msg: dict) -> bool:
+        """Alerts, verify questions and HD ringing: live link AND a push, so a closed app or a stale
+        connection still gets it. The phone drops whichever copy arrives second."""
+        live = await self.send(user_id, msg)
+        return push.send_soon(user_id, msg) or live
+
+    def expect(self, request_id: str, owner: str | None = None) -> asyncio.Future:
         fut = asyncio.get_running_loop().create_future()
         self.waiters[request_id] = fut
+        if owner:
+            self.owners[request_id] = owner
         return fut
 
-    def resolve(self, request_id: str, value):
+    def resolve(self, request_id: str, value, by: str | None = None) -> bool:
+        owner = self.owners.get(request_id)
+        if owner and by != owner:
+            log.warning("answer for %s from %s ignored (asked %s)", request_id, by, owner)
+            return False
+        self.owners.pop(request_id, None)
         fut = self.waiters.pop(request_id, None)
         if fut and not fut.done():
             fut.set_result(value)
+            return True
+        return False
+
+    def forget(self, request_id: str):
+        self.waiters.pop(request_id, None)
+        self.owners.pop(request_id, None)
 
 
 hub = Hub()

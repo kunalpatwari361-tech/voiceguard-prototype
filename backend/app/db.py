@@ -123,6 +123,15 @@ class AuthToken(SQLModel, table=True):
     revoked: bool = False
 
 
+class PushToken(SQLModel, table=True):
+    """A phone's Firebase Cloud Messaging token, tied to the login token that registered it."""
+    token: str = Field(primary_key=True)
+    user_id: str = Field(index=True)
+    auth_hash: str | None = Field(default=None, index=True)
+    created_at: dt.datetime = Field(default_factory=now)
+    updated_at: dt.datetime = Field(default_factory=now)
+
+
 def init_db():
     SQLModel.metadata.create_all(engine)
     with Session(engine) as s:

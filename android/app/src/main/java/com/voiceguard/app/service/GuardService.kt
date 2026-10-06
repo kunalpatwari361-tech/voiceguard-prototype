@@ -22,13 +22,11 @@ import com.voiceguard.app.data.Live
 import com.voiceguard.app.data.Prefs
 import com.voiceguard.app.data.Sync
 import com.voiceguard.app.data.json
-import com.voiceguard.app.data.obj
 import com.voiceguard.app.data.str
 import com.voiceguard.app.telecom.CallerIdOverlay
 import com.voiceguard.app.ui.PanicPauseActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonObject
 
 /**
  * Always-on protection: keeps the family link open, reports call state (for "Are You Really
@@ -40,7 +38,7 @@ class GuardService : LifecycleService() {
         super.onCreate()
         startFg()
         Live.start()
-        lifecycleScope.launch { Live.events.collect { handle(it) } }
+        lifecycleScope.launch { Live.events.collect { Inbox.handle(this@GuardService, it) } }
         lifecycleScope.launch { Live.connected.collect { if (it) onConnected() } }
         registerCallState()
         lifecycleScope.launch {
@@ -68,34 +66,14 @@ class GuardService : LifecycleService() {
         }
     }
 
+    private var pushChecked = false
+
     private fun onConnected() {
         CallWatch.current(this)?.let { Live.send(json("type" to "call_state", "state" to it)) }
         lifecycleScope.launch { runCatching { Loc.send(this@GuardService) } }
-    }
-
-    private suspend fun handle(e: JsonObject) {
-        when (e.str("type")) {
-            "verify_request" -> Notify.verifyRequest(this, e.str("request_id")!!, e.obj("from").str("name") ?: "Family",
-                e.str("number"))
-            "hd_incoming" -> Notify.hdIncoming(this, e.str("call_id")!!, e.obj("from").str("name") ?: "Family")
-            "location_request" -> runCatching { Loc.send(this, e.str("request_id")) }
-            "scamlist_updated" -> Sync.lists()
-            "family_updated" -> runCatching { Sync.family() }
-            "alert" -> {
-                val a = e.obj("alert")
-                val p = a.obj("payload")
-                when (a.str("kind")) {
-                    "impersonation" -> Notify.alert(this, "⚠ " + (a.str("title") ?: ""), a.str("body") ?: "",
-                        p.str("asker_phone"), "Call ${p.str("asker_name") ?: "them"} now")
-                    "cyber_cell" -> Notify.alert(this, a.str("title") ?: "", a.str("body") ?: "", "1930", "Call 1930")
-                    "scam_call", "panic", "bank_hold" -> {
-                        val victim = Sync.member(a.str("from_user_id"))
-                        Notify.alert(this, "⚠ " + (a.str("title") ?: ""), a.str("body") ?: "",
-                            victim?.str("phone") ?: p.str("victim_phone"), "Call ${victim?.str("name") ?: p.str("from_name") ?: "them"} now")
-                    }
-                    else -> Notify.alert(this, a.str("title") ?: "VoiceGuard alert", a.str("body") ?: "")
-                }
-            }
+        if (!pushChecked) {           // once per start: register for pushes so alerts arrive when the app is closed
+            pushChecked = true
+            lifecycleScope.launch { Push.register(this@GuardService) }
         }
     }
 

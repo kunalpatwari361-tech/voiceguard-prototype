@@ -136,6 +136,15 @@
             </intent-filter>
         </service>
 
+        <!-- Firebase push: alerts, verify questions and HD rings reach the phone when the app is closed -->
+        <service
+            android:name=".service.VgMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".service.ActionReceiver"
             android:exported="false" />

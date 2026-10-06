@@ -55,6 +55,12 @@ OTP_RESEND_S = 30          # wait before asking for a new code
 OTP_MAX_PER_HOUR = 5       # codes per phone number per hour
 TOKEN_TTL_DAYS = 180       # how long a phone stays signed in
 
+# ---------------------------------------------------------------- push notifications (Firebase Cloud Messaging)
+# Wakes a family phone whose app is closed. Both files come from the Firebase console and stay on this laptop.
+FIREBASE_CREDENTIALS = Path(os.getenv("VG_FIREBASE_CREDENTIALS", str(DATA_DIR / "firebase-service-account.json")))
+FIREBASE_APP_CONFIG = Path(os.getenv("VG_FIREBASE_APP_CONFIG", str(DATA_DIR / "google-services.json")))
+ANDROID_PACKAGE = "com.voiceguard.app"
+
 # Secret used to hash OTP codes and login tokens (created once, kept in data/secret.key).
 _secret_file = DATA_DIR / "secret.key"
 if os.getenv("VG_SECRET"):

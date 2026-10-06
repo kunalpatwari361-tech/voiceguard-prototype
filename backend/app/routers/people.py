@@ -145,14 +145,14 @@ async def request_location(body: LocationRequest, me: User = Depends(current_use
     fresh = False
     if hub.online(target.id):
         rid = f"loc-{target.id}-{now().timestamp()}"
-        fut = hub.expect(rid)
+        fut = hub.expect(rid, owner=target.id)
         await hub.send(target.id, {"type": "location_request", "request_id": rid,
                                    "from": {"id": asker.id, "name": asker.name}})
         try:
             await asyncio.wait_for(fut, timeout=12)
             fresh = True
         except asyncio.TimeoutError:
-            hub.waiters.pop(rid, None)
+            hub.forget(rid)
         s.refresh(target)
     return {"fresh": fresh, "user": public_user(target)}
 

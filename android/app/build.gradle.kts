@@ -60,4 +60,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
+
+    // Read the OTP from the SMS with one tap (SMS User Consent API, no SMS permission)
+    implementation("com.google.android.gms:play-services-auth-api-phone:18.1.0")
+    // Push notifications when the app is closed (Firebase Cloud Messaging; settings come from our server)
+    implementation("com.google.firebase:firebase-messaging:25.1.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 }

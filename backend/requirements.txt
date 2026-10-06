@@ -13,7 +13,8 @@ fastapi==0.142.2
 uvicorn[standard]==0.54.0     # includes websockets for the live family link and HD call relay
 python-multipart==0.0.32      # audio uploads
 python-dotenv==1.2.4
-httpx==0.28.1                 # Twilio Verify calls (real SMS OTP)
+httpx==0.28.1                 # Twilio Verify calls (real SMS OTP) and Firebase push
+google-auth==2.60.0           # signs the Firebase service-account token for push notifications (pulls cryptography)
 
 # Audio / signal processing
 numpy==2.5.3
