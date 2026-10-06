@@ -1,0 +1,288 @@
+[
+ {
+  "id": "hi_accident",
+  "title": "Son in accident (Hindi)",
+  "title_hi": "बेटे का एक्सीडेंट (हिंदी)",
+  "number": "+919000000101",
+  "relation": "son",
+  "language": "hi",
+  "generator": "facebook/mms-tts-hin (VITS neural TTS)",
+  "turns": [
+   {
+    "text": "हेलो पापा, मैं बोल रहा हूँ। मेरी आवाज़ सुनाई दे रही है?",
+    "hd": "hi_accident_t1_hd.wav",
+    "phone": "hi_accident_t1_phone.wav",
+    "seconds": 5.19
+   },
+   {
+    "text": "पापा मेरा एक्सीडेंट हो गया है, मैं अस्पताल में हूँ। बहुत दर्द हो रहा है।",
+    "hd": "hi_accident_t2_hd.wav",
+    "phone": "hi_accident_t2_phone.wav",
+    "seconds": 6.26
+   },
+   {
+    "text": "डॉक्टर बोल रहे हैं अभी पचास हज़ार रुपये जमा करने हैं। जल्दी से यूपीआई पर भेज दो।",
+    "hd": "hi_accident_t3_hd.wav",
+    "phone": "hi_accident_t3_phone.wav",
+    "seconds": 7.89
+   },
+   {
+    "text": "और मम्मी को मत बताना, वो परेशान हो जाएंगी। जल्दी करो पापा।",
+    "hd": "hi_accident_t4_hd.wav",
+    "phone": "hi_accident_t4_phone.wav",
+    "seconds": 5.32
+   }
+  ],
+  "challenge_responses": {
+   "laugh": {
+    "text": "हा हा हा हा हा",
+    "hd": "hi_accident_c_laugh_hd.wav",
+    "phone": "hi_accident_c_laugh_phone.wav",
+    "seconds": 1.4
+   },
+   "whisper": {
+    "text": "पापा मैं ठीक हूँ",
+    "hd": "hi_accident_c_whisper_hd.wav",
+    "phone": "hi_accident_c_whisper_phone.wav",
+    "seconds": 2.28
+   },
+   "sing": {
+    "text": "हैप्पी बर्थडे टू यू",
+    "hd": "hi_accident_c_sing_hd.wav",
+    "phone": "hi_accident_c_sing_phone.wav",
+    "seconds": 2.13
+   },
+   "phrase": {
+    "text": "आज मंगलवार है और मैं घर पर हूँ",
+    "hd": "hi_accident_c_phrase_hd.wav",
+    "phone": "hi_accident_c_phrase_phone.wav",
+    "seconds": 3.59
+   },
+   "family_question": {
+    "text": "पता नहीं पापा, अभी याद नहीं आ रहा, पहले पैसे भेज दो",
+    "hd": "hi_accident_c_family_question_hd.wav",
+    "phone": "hi_accident_c_family_question_phone.wav",
+    "seconds": 5.08
+   },
+   "dialect": {
+    "text": "हाँ पापा, मैं ठीक हूँ, बस पैसे भेज दो",
+    "hd": "hi_accident_c_dialect_hd.wav",
+    "phone": "hi_accident_c_dialect_phone.wav",
+    "seconds": 3.84
+   }
+  }
+ },
+ {
+  "id": "en_police",
+  "title": "Arrested by police (English)",
+  "title_hi": "पुलिस ने पकड़ा (अंग्रेज़ी)",
+  "number": "+919000000102",
+  "relation": "son",
+  "language": "en",
+  "generator": "facebook/mms-tts-eng (VITS neural TTS)",
+  "turns": [
+   {
+    "text": "Hello papa, it is me. Can you hear me properly?",
+    "hd": "en_police_t1_hd.wav",
+    "phone": "en_police_t1_phone.wav",
+    "seconds": 3.54
+   },
+   {
+    "text": "Papa, I am in big trouble. The police have arrested me after a small fight.",
+    "hd": "en_police_t2_hd.wav",
+    "phone": "en_police_t2_phone.wav",
+    "seconds": 5.33
+   },
+   {
+    "text": "The officer says if we pay forty thousand rupees right now, they will let me go. Please send it on this number.",
+    "hd": "en_police_t3_hd.wav",
+    "phone": "en_police_t3_phone.wav",
+    "seconds": 7.97
+   },
+   {
+    "text": "Please do not tell anyone at home. Just send the money quickly, papa.",
+    "hd": "en_police_t4_hd.wav",
+    "phone": "en_police_t4_phone.wav",
+    "seconds": 5.35
+   }
+  ],
+  "challenge_responses": {
+   "laugh": {
+    "text": "ha ha ha ha ha",
+    "hd": "en_police_c_laugh_hd.wav",
+    "phone": "en_police_c_laugh_phone.wav",
+    "seconds": 1.91
+   },
+   "whisper": {
+    "text": "papa I am fine",
+    "hd": "en_police_c_whisper_hd.wav",
+    "phone": "en_police_c_whisper_phone.wav",
+    "seconds": 2.21
+   },
+   "sing": {
+    "text": "happy birthday to you",
+    "hd": "en_police_c_sing_hd.wav",
+    "phone": "en_police_c_sing_phone.wav",
+    "seconds": 2.52
+   },
+   "phrase": {
+    "text": "today is tuesday and I am at home",
+    "hd": "en_police_c_phrase_hd.wav",
+    "phone": "en_police_c_phrase_phone.wav",
+    "seconds": 3.92
+   },
+   "family_question": {
+    "text": "I do not remember papa, please just send the money first",
+    "hd": "en_police_c_family_question_hd.wav",
+    "phone": "en_police_c_family_question_phone.wav",
+    "seconds": 4.5
+   },
+   "dialect": {
+    "text": "yes papa, I am fine, just send the money",
+    "hd": "en_police_c_dialect_hd.wav",
+    "phone": "en_police_c_dialect_phone.wav",
+    "seconds": 3.28
+   }
+  }
+ },
+ {
+  "id": "hi_newnumber",
+  "title": "New number, urgent money (Hindi)",
+  "title_hi": "नया नंबर, तुरंत पैसे (हिंदी)",
+  "number": "+919000000103",
+  "relation": "daughter",
+  "language": "hi",
+  "generator": "facebook/mms-tts-hin (VITS neural TTS)",
+  "turns": [
+   {
+    "text": "हेलो मम्मी, मेरा फ़ोन खो गया है। यह मेरा नया नंबर है, सेव कर लो।",
+    "hd": "hi_newnumber_t1_hd.wav",
+    "phone": "hi_newnumber_t1_phone.wav",
+    "seconds": 7.4
+   },
+   {
+    "text": "मम्मी मुझे अभी तुरंत बीस हज़ार रुपये चाहिए, कॉलेज की फीस भरनी है।",
+    "hd": "hi_newnumber_t2_hd.wav",
+    "phone": "hi_newnumber_t2_phone.wav",
+    "seconds": 5.08
+   },
+   {
+    "text": "आपके फ़ोन पर एक ओटीपी आएगा, वो मुझे बता देना। बहुत ज़रूरी है।",
+    "hd": "hi_newnumber_t3_hd.wav",
+    "phone": "hi_newnumber_t3_phone.wav",
+    "seconds": 7.25
+   }
+  ],
+  "challenge_responses": {
+   "laugh": {
+    "text": "हा हा हा हा",
+    "hd": "hi_newnumber_c_laugh_hd.wav",
+    "phone": "hi_newnumber_c_laugh_phone.wav",
+    "seconds": 1.24
+   },
+   "whisper": {
+    "text": "मम्मी मैं ठीक हूँ",
+    "hd": "hi_newnumber_c_whisper_hd.wav",
+    "phone": "hi_newnumber_c_whisper_phone.wav",
+    "seconds": 1.96
+   },
+   "sing": {
+    "text": "हैप्पी बर्थडे टू यू",
+    "hd": "hi_newnumber_c_sing_hd.wav",
+    "phone": "hi_newnumber_c_sing_phone.wav",
+    "seconds": 2.13
+   },
+   "phrase": {
+    "text": "आज मंगलवार है और मैं घर पर हूँ",
+    "hd": "hi_newnumber_c_phrase_hd.wav",
+    "phone": "hi_newnumber_c_phrase_phone.wav",
+    "seconds": 3.59
+   },
+   "family_question": {
+    "text": "अभी याद नहीं है, पहले ओटीपी बता दो",
+    "hd": "hi_newnumber_c_family_question_hd.wav",
+    "phone": "hi_newnumber_c_family_question_phone.wav",
+    "seconds": 4.55
+   },
+   "dialect": {
+    "text": "हाँ मम्मी, सब ठीक है",
+    "hd": "hi_newnumber_c_dialect_hd.wav",
+    "phone": "hi_newnumber_c_dialect_phone.wav",
+    "seconds": 2.24
+   }
+  }
+ },
+ {
+  "id": "en_digital_arrest",
+  "title": "Fake CBI 'digital arrest' (English)",
+  "title_hi": "नकली CBI 'डिजिटल अरेस्ट' (अंग्रेज़ी)",
+  "number": "+919000000104",
+  "relation": null,
+  "language": "en",
+  "generator": "facebook/mms-tts-eng (VITS neural TTS)",
+  "turns": [
+   {
+    "text": "This is inspector Verma calling from the CBI cyber department.",
+    "hd": "en_digital_arrest_t1_hd.wav",
+    "phone": "en_digital_arrest_t1_phone.wav",
+    "seconds": 6.05
+   },
+   {
+    "text": "A courier parcel in your name was caught at customs with drugs and fake passports.",
+    "hd": "en_digital_arrest_t2_hd.wav",
+    "phone": "en_digital_arrest_t2_phone.wav",
+    "seconds": 6.05
+   },
+   {
+    "text": "You are now under digital arrest. Do not disconnect this call and do not tell your family.",
+    "hd": "en_digital_arrest_t3_hd.wav",
+    "phone": "en_digital_arrest_t3_phone.wav",
+    "seconds": 5.75
+   },
+   {
+    "text": "To clear your name, transfer your savings to the RBI safe account. I will send the account number.",
+    "hd": "en_digital_arrest_t4_hd.wav",
+    "phone": "en_digital_arrest_t4_phone.wav",
+    "seconds": 6.69
+   }
+  ],
+  "challenge_responses": {
+   "laugh": {
+    "text": "ha ha ha",
+    "hd": "en_digital_arrest_c_laugh_hd.wav",
+    "phone": "en_digital_arrest_c_laugh_phone.wav",
+    "seconds": 1.46
+   },
+   "whisper": {
+    "text": "I am an officer",
+    "hd": "en_digital_arrest_c_whisper_hd.wav",
+    "phone": "en_digital_arrest_c_whisper_phone.wav",
+    "seconds": 2.26
+   },
+   "sing": {
+    "text": "I cannot sing on duty",
+    "hd": "en_digital_arrest_c_sing_hd.wav",
+    "phone": "en_digital_arrest_c_sing_phone.wav",
+    "seconds": 2.6
+   },
+   "phrase": {
+    "text": "today is tuesday and I am at home",
+    "hd": "en_digital_arrest_c_phrase_hd.wav",
+    "phone": "en_digital_arrest_c_phrase_phone.wav",
+    "seconds": 3.92
+   },
+   "family_question": {
+    "text": "That is not relevant, follow my instructions",
+    "hd": "en_digital_arrest_c_family_question_hd.wav",
+    "phone": "en_digital_arrest_c_family_question_phone.wav",
+    "seconds": 3.84
+   },
+   "dialect": {
+    "text": "Speak in English only",
+    "hd": "en_digital_arrest_c_dialect_hd.wav",
+    "phone": "en_digital_arrest_c_dialect_phone.wav",
+    "seconds": 2.52
+   }
+  }
+ }
+]

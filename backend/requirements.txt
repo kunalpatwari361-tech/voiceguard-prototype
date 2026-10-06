@@ -1,0 +1,17 @@
+torch
+transformers
+huggingface_hub
+fastapi
+uvicorn[standard]
+python-multipart
+numpy
+scipy
+soundfile
+soxr
+librosa
+praat-parselmouth
+sqlmodel
+anthropic
+python-dotenv
+scikit-learn
+pyarrow

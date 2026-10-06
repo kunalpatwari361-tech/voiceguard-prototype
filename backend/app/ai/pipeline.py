@@ -1,0 +1,91 @@
+"""One call that runs every voice check on a clip and fuses the result."""
+import time
+
+import numpy as np
+
+from . import fingerprints, models, phone_channel, reply_delay, scam_text, source_trace
+from .risk import fuse
+
+
+def _clean(o):
+    """Make results JSON-safe (NumPy scalars/arrays -> Python types)."""
+    if isinstance(o, dict):
+        return {k: _clean(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_clean(v) for v in o]
+    if isinstance(o, np.generic):
+        return o.item()
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    return o
+
+
+def analyze_voice(y: np.ndarray, *, claimed_name: str | None = None, claimed_print: np.ndarray | None = None,
+                  transcript_hint: str = "", do_asr: bool = True, simulate_phone: bool = False,
+                  reply_gaps: list[float] | None = None, number_score: float | None = None,
+                  really_calling: str | None = None, voice_test: dict | None = None,
+                  hd_call: str | None = None, location: dict | None = None) -> dict:
+    t0 = time.time()
+    timings = {}
+    if simulate_phone:
+        y = phone_channel.phone_channel(y, codec="g711", packet_loss=0.02, seed=1)
+    y = y[: 16000 * 60]
+    narrow = simulate_phone or phone_channel.is_narrowband(y)
+    fp = fingerprints.analyze(y, narrowband=narrow)
+    timings["fingerprints"] = round(time.time() - t0, 2)
+    if fp["stats"]["speech_s"] < 1.0:
+        return {"ok": False, "error": "too_short",
+                "message": "Not enough speech in this clip. Record at least 3 seconds of the caller talking.",
+                "message_hi": "इस क्लिप में बोली बहुत कम है। कम से कम 3 सेकंड की आवाज़ रिकॉर्ड करें।"}
+
+    t = time.time()
+    df = models.deepfake().predict(y)
+    timings["deepfake"] = round(time.time() - t, 2)
+
+    vp = None
+    if claimed_print is not None:
+        t = time.time()
+        vp = models.speaker().compare(models.speaker().embed(y), claimed_print)
+        vp["name"] = claimed_name
+        timings["voiceprint"] = round(time.time() - t, 2)
+
+    tr = None
+    if do_asr:
+        t = time.time()
+        tr = models.asr().transcribe(y)
+        timings["asr"] = round(time.time() - t, 2)
+    text = " ".join(x for x in (transcript_hint, tr["text"] if tr else "") if x).strip()
+    sw = scam_text.analyze(text, claimed_name) if text else None
+
+    rd = reply_delay.score_gaps(reply_gaps) if reply_gaps else None
+    st = source_trace.trace(df["fake_prob"], fp, rd)
+
+    loc_signal = None
+    if location and sw and set(sw["rules"]["categories"]) & {"emergency_story", "new_number"}:
+        loc_signal = {"mismatch": True,
+                      "en": f"{claimed_name}'s phone is at {location.get('place') or 'a normal place'} "
+                            f"(updated {location.get('age_min', '?')} min ago) - does not match the emergency story.",
+                      "hi": f"{claimed_name} का फ़ोन {location.get('place') or 'सामान्य जगह'} पर है - "
+                            f"इमरजेंसी की कहानी से मेल नहीं खाता।"}
+
+    risk = fuse({
+        "deepfake": df["fake_prob"], "fingerprints": fp["score"], "voiceprint": vp,
+        "scam_words": sw["score"] if sw else None,
+        "scam_words_tips": sw["rules"]["tips"] if sw else None,
+        "reply_delay": rd["score"] if rd else None, "number": number_score,
+        "really_calling": really_calling, "voice_test": voice_test, "hd_call": hd_call,
+        "location": loc_signal,
+    })
+    return _clean({
+        "ok": True,
+        "risk": risk,
+        "ai_voice": df,
+        "fingerprints": fp,
+        "source_trace": st,
+        "voice_print": vp,
+        "transcript": tr,
+        "scam_words": sw,
+        "reply_delay": rd,
+        "phone_quality": {"narrowband": narrow, "simulated_phone_line": simulate_phone},
+        "timings_s": timings | {"total": round(time.time() - t0, 2)},
+    })
