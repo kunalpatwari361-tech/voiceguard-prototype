@@ -167,7 +167,7 @@ fun EvidenceDetailScreen(id: String, back: () -> Unit) {
         }
         Section(tr("Report it", "रिपोर्ट करें"), Icons.Default.LocalPolice, VG.red) {
             BigButton(tr("One-tap call 1930", "1930 पर एक-टैप कॉल"), Icons.Default.LocalPolice, VG.red) { dial(ctx, "1930") }
-            SmallButton(tr("Open printable report", "प्रिंट योग्य रिपोर्ट खोलें"), Icons.Default.OpenInBrowser) { openUrl(ctx, Api.url("/api/evidence/$id/report.html")) }
+            SmallButton(tr("Open printable report", "प्रिंट योग्य रिपोर्ट खोलें"), Icons.Default.OpenInBrowser) { openUrl(ctx, Api.signedUrl("/api/evidence/$id/report.html")) }
             SmallButton(tr("Share report text", "रिपोर्ट शेयर करें"), Icons.Default.Share) { shareText(ctx, ch.str("complaint_text") ?: "") }
             SmallButton("cybercrime.gov.in", Icons.Default.OpenInBrowser) { openUrl(ctx, ch.str("cybercrime_url") ?: "https://cybercrime.gov.in/") }
         }

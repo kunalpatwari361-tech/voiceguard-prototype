@@ -42,6 +42,8 @@ object Prefs {
     val serverUrl: String get() = (serverUrlRaw ?: "http://127.0.0.1:8000").trimEnd('/')
 
     var userId by str("user_id")
+    /** Login token from OTP sign-up; sent with every request. */
+    var token by str("token")
     var name by str("name")
     var phone by str("phone")
     var role by str("role", "member")
@@ -62,7 +64,7 @@ object Prefs {
     var lastRiskyClaimedId by str("last_risky_claimed")
     var lastRiskyScore by str("last_risky_score")
 
-    val registered get() = userId != null
+    val registered get() = userId != null && !token.isNullOrBlank()
 
     fun markRisky(number: String?, score: Int, claimedId: String?) {
         lastRiskyAt = System.currentTimeMillis()

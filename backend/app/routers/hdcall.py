@@ -20,7 +20,7 @@ from ..ai.pipeline import analyze_voice
 from ..ai.reply_delay import TurnTracker
 from ..db import User, engine, get_session
 from ..hub import hub
-from .common import user_or_404
+from ..auth import current_user, require_family, require_self, user_for_token
 
 log = logging.getLogger("voiceguard.hd")
 router = APIRouter(tags=["hd-call"])
@@ -54,9 +54,11 @@ class Start(BaseModel):
 
 
 @router.post("/api/hd/start")
-async def start(body: Start, s: Session = Depends(get_session)):
-    caller = user_or_404(s, body.caller_id)
-    callee = user_or_404(s, body.callee_id)
+async def start(body: Start, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, body.caller_id)
+    caller = me
+    callee = s.get(User, body.callee_id)
+    require_family(me, callee)
     if not hub.online(callee.id):
         return {"status": "offline", "message": f"{callee.name}'s VoiceGuard app is not reachable.",
                 "message_hi": f"{callee.name} का VoiceGuard ऐप अभी उपलब्ध नहीं है।"}
@@ -113,7 +115,12 @@ async def _analyse(c: Call, side: str):
 
 
 @router.websocket("/ws/hd/{call_id}/{user_id}")
-async def audio_socket(ws: WebSocket, call_id: str, user_id: str):
+async def audio_socket(ws: WebSocket, call_id: str, user_id: str, token: str | None = None):
+    with Session(engine) as s:
+        u = user_for_token(s, token)
+    if not u or u.id != user_id:
+        await ws.close(code=4401)   # not signed in as this user
+        return
     c = calls.get(call_id)
     if not c or user_id not in (c.caller, c.callee):
         await ws.close(code=4404)

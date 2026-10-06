@@ -5,6 +5,8 @@ Stops AI voice-clone scam calls ("Papa, I had an accident, send money"). Android
 ```
  Android phone (Kotlin + Jetpack Compose)                  Laptop (Python 3.14 + FastAPI)
  ┌──────────────────────────────────────┐  USB adb reverse ┌──────────────────────────────────────────┐
+ │ OTP sign-up → login token on every   │                  │ /api/auth     OTP sign-up, tokens        │
+ │ request                              │                  │                                          │
  │ VoiceGuard Dialer (default Phone app)│                  │ /api/analyze  AI voice · fingerprints ·  │
  │  keypad · recents · contacts · SIMs  │ ◄──── HTTP ────► │               voice print · Whisper ·    │
  │ Call screen + live voice check       │                  │               scam words · risk score    │
@@ -54,6 +56,7 @@ Stops AI voice-clone scam calls ("Papa, I had an accident, send money"). Android
 | Runtime | Python 3.14 |
 | Web | FastAPI 0.142 · Uvicorn 0.54 (+ websockets 17.2) · Starlette 1.7 · Pydantic 2.13 · python-multipart · python-dotenv |
 | Storage | SQLModel 0.0.47 on SQLAlchemy 2.0 + SQLite (users, family, alerts, evidence, scam list) |
+| Sign-up & security | Phone-number OTP (Twilio Verify for real SMS, or demo mode) → login token; codes and tokens stored only as HMAC-SHA256 hashes; every route checks the token and that you act only for yourself / your family (httpx 0.28 for Twilio) |
 | AI runtime | PyTorch 2.14.1 (CPU) · Hugging Face Transformers 5.18 · huggingface_hub 1.33 |
 | Audio & DSP | NumPy 2.5 (FFT band-pass filters – no SciPy at runtime) · soundfile 0.14 / libsndfile 1.2.2 (WAV, FLAC, OGG-Opus, MP3 + real Opus/MP3 encoding) · soxr 1.1 (resampling) · Praat via parselmouth 0.4.7 |
 | Optional LLM | Anthropic Python SDK 1.11 → `claude-opus-5-5` (only when `ANTHROPIC_API_KEY` is set) |
@@ -124,7 +127,8 @@ Then build the APK with `build_app.bat` (or open `android/` in Android Studio an
 2. **Phones** – enable *Developer options → USB debugging* on both phones, plug them into the laptop, accept the prompt.
 3. **Install** – double-click `install_app.bat` (installs the APK and links each phone to the server over USB).
    Re-run `connect_phones.bat` whenever you re-plug a phone.
-4. **Set up** – on Papa's phone: name, number, role *Parent* → *Create family circle* → note the 6-digit code.
+4. **Set up** – on Papa's phone: name, number, role *Parent* → **Send OTP** → type the 6-digit code →
+   *Create family circle* → note the 6-digit invite code.
    On Rahul's phone: role *Son/Daughter* → *Join* with the code. Tap *Allow* on every permission row
    (Call screening, Usage access, Display over other apps, Full-screen alerts).
 5. On Rahul's phone: *My Voice Print* → read 3 sentences.
@@ -136,6 +140,32 @@ acts as "Rahul's phone" (online, not on a call, voice print saved, receives aler
 
 **Improve the AI-voice detector:** `retrain_detector.bat` continues training with the extra Indian-language data
 (Hindi, Marathi, Tamil, Telugu, Punjabi). It resumes where it stopped; restart the server afterwards.
+
+## Sign-up and security (OTP)
+
+Every account is created by **verifying the phone number with a one-time code**; there is no other way in.
+
+1. App → `POST /api/auth/otp/start {phone}` – the server sends a 6-digit code.
+2. App → `POST /api/auth/otp/verify {phone, code, name, role}` – right code → account created (or the existing one
+   for that number) + a **login token**. The app stores it and sends `Authorization: Bearer <token>` on every request;
+   WebSockets and browser links (printable evidence report) use `?token=`.
+3. Without a valid token the server answers **401**; acting for another user answers **403**; family data, evidence
+   and voice prints are visible only inside your family circle. `POST /api/auth/logout` revokes the token.
+
+| Rule | Value |
+|---|---|
+| Code length / lifetime | 6 digits, 5 minutes, single use |
+| Wrong guesses | 5 per code, then ask for a new code |
+| Resend | after 30 s, at most 5 codes per number per hour |
+| Login token | 180 days, random 256-bit, stored only as an HMAC-SHA256 hash (`data/secret.key`) |
+
+**How the code is delivered** (set in `backend/.env`, see `.env.example`):
+- **Demo mode** (default): no SMS – the code is printed in the server window and `backend\data\dev_otp.log`.
+- **Real SMS**: fill `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SID` (Twilio Verify). A Twilio trial
+  can text the numbers you verify in the Twilio console.
+- **Test numbers**: `VG_OTP_TEST_NUMBERS=+919876500002:246810` – fixed codes, no SMS (for judges / `sim_second_phone.bat`).
+
+Partner APIs (bank `/api/v1/enterprise/*`, telecom `/api/v1/telecom/flag`) use their own API keys instead.
 
 ## Troubleshooting
 

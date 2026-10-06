@@ -7,9 +7,10 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from ..ai.number_info import normalize
-from ..db import get_session
+from ..auth import current_user, require_family, require_self
+from ..db import User, get_session
 from ..hub import hub
-from .common import family_ids, public_user, push_alert, user_or_404
+from .common import family_ids, public_user, push_alert
 
 router = APIRouter(prefix="/api/verify", tags=["verify"])
 
@@ -22,9 +23,11 @@ class Ask(BaseModel):
 
 
 @router.post("/ask")
-async def ask(body: Ask, s: Session = Depends(get_session)):
-    asker = user_or_404(s, body.asker_id)
-    claimed = user_or_404(s, body.claimed_user_id)
+async def ask(body: Ask, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, body.asker_id)
+    asker = me
+    claimed = s.get(User, body.claimed_user_id)
+    require_family(me, claimed)
     number = normalize(body.number) if body.number else None
     online = hub.online(claimed.id)
     auto = None

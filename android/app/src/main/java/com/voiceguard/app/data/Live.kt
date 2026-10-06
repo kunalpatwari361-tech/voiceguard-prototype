@@ -49,7 +49,8 @@ object Live {
     @Synchronized
     private fun connect() {
         val uid = Prefs.userId ?: return
-        val url = Prefs.serverUrl.replaceFirst("http", "ws") + "/ws/$uid"
+        val tok = Prefs.token ?: return
+        val url = Prefs.serverUrl.replaceFirst("http", "ws") + "/ws/$uid?token=" + android.net.Uri.encode(tok)
         ws = Api.client.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 connected.value = true
@@ -60,7 +61,14 @@ object Live {
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = dropped(webSocket)
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = dropped(webSocket)
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (response?.code == 403) {          // server refused our login token
+                    wanted = false
+                    Prefs.token = null
+                    Api.authLost.tryEmit(Unit)
+                }
+                dropped(webSocket)
+            }
         })
     }
 

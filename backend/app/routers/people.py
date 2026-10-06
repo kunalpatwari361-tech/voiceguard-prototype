@@ -1,4 +1,5 @@
-"""Users, Family Circle (feature 2), Voice Print enrolment (10), Family Location (9), Family Alert (17)."""
+"""Users, Family Circle (feature 2), Voice Print enrolment (10), Family Location (9), Family Alert (17).
+Every route needs the login token from the OTP sign-up (app/auth.py); accounts are created only there."""
 import asyncio
 import json
 
@@ -10,40 +11,19 @@ from sqlmodel import Session, or_, select
 from ..ai import models
 from ..ai.audio_io import load_audio
 from ..ai.fingerprints import speech_mask
-from ..ai.number_info import normalize
+from ..auth import current_user, require_family, require_self
 from ..db import Alert, Family, User, get_session, now
 from ..hub import hub
-from .common import alert_dict, family_ids, public_user, push_alert, user_or_404
+from .common import alert_dict, family_ids, public_user, push_alert
 
 router = APIRouter(prefix="/api", tags=["people"])
 
 
-class NewUser(BaseModel):
-    name: str
-    phone: str
-    role: str = "member"
-
-
-@router.post("/users")
-def create_user(body: NewUser, s: Session = Depends(get_session)):
-    phone = normalize(body.phone)
-    existing = s.exec(select(User).where(User.phone == phone)).first()
-    if existing:  # re-installing the app on the same phone number keeps the account
-        existing.name = body.name
-        existing.role = body.role
-        s.add(existing)
-        s.commit()
-        return public_user(existing)
-    u = User(name=body.name.strip(), phone=phone, role=body.role)
-    s.add(u)
-    s.commit()
-    s.refresh(u)
-    return public_user(u)
-
-
 @router.get("/users/{user_id}")
-def get_user(user_id: str, s: Session = Depends(get_session)):
-    return public_user(user_or_404(s, user_id))
+def get_user(user_id: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    u = s.get(User, user_id)
+    require_family(me, u)
+    return public_user(u)
 
 
 # ------------------------------------------------------------------ family circle
@@ -64,8 +44,9 @@ def _family_view(s: Session, f: Family) -> dict:
 
 
 @router.post("/family")
-def create_family(body: NewFamily, s: Session = Depends(get_session)):
-    u = user_or_404(s, body.user_id)
+def create_family(body: NewFamily, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, body.user_id)
+    u = me
     f = Family(name=body.name, owner_id=u.id)
     s.add(f)
     s.commit()
@@ -77,8 +58,9 @@ def create_family(body: NewFamily, s: Session = Depends(get_session)):
 
 
 @router.post("/family/join")
-async def join_family(body: JoinFamily, s: Session = Depends(get_session)):
-    u = user_or_404(s, body.user_id)
+async def join_family(body: JoinFamily, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, body.user_id)
+    u = me
     f = s.exec(select(Family).where(Family.invite_code == body.code.strip())).first()
     if not f:
         raise HTTPException(404, "Invite code not found")
@@ -90,7 +72,9 @@ async def join_family(body: JoinFamily, s: Session = Depends(get_session)):
 
 
 @router.get("/family/{family_id}")
-def get_family(family_id: str, s: Session = Depends(get_session)):
+def get_family(family_id: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    if me.family_id != family_id:
+        raise HTTPException(403, "You are not in this family circle.")
     f = s.get(Family, family_id)
     if not f:
         raise HTTPException(404, "family not found")
@@ -98,8 +82,9 @@ def get_family(family_id: str, s: Session = Depends(get_session)):
 
 
 @router.post("/family/leave/{user_id}")
-def leave_family(user_id: str, s: Session = Depends(get_session)):
-    u = user_or_404(s, user_id)
+def leave_family(user_id: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, user_id)
+    u = me
     u.family_id = None
     s.add(u)
     s.commit()
@@ -109,9 +94,10 @@ def leave_family(user_id: str, s: Session = Depends(get_session)):
 # ------------------------------------------------------------------ voice print
 @router.post("/voiceprint/{user_id}")
 async def enroll_voiceprint(user_id: str, file: UploadFile = File(...), reset: bool = Form(False),
-                            s: Session = Depends(get_session)):
-    """Save the voice as numbers (a 512-d x-vector), never the recording itself."""
-    u = user_or_404(s, user_id)
+                            me: User = Depends(current_user), s: Session = Depends(get_session)):
+    """Save the voice as numbers (a 512-d x-vector), never the recording itself. Only your own voice."""
+    require_self(me, user_id)
+    u = me
     y = load_audio(await file.read())
     mask, *_ = speech_mask(y)
     if mask.sum() * 0.01 < 3:
@@ -134,8 +120,9 @@ async def enroll_voiceprint(user_id: str, file: UploadFile = File(...), reset: b
 
 
 @router.delete("/voiceprint/{user_id}")
-def delete_voiceprint(user_id: str, s: Session = Depends(get_session)):
-    u = user_or_404(s, user_id)
+def delete_voiceprint(user_id: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, user_id)
+    u = me
     u.voiceprint, u.voiceprint_samples, u.voiceprint_at = None, 0, None
     s.add(u)
     s.commit()
@@ -149,10 +136,12 @@ class LocationRequest(BaseModel):
 
 
 @router.post("/location/request")
-async def request_location(body: LocationRequest, s: Session = Depends(get_session)):
-    """Ask the target phone for a fresh fix; fall back to the last known one."""
-    target = user_or_404(s, body.target_id)
-    asker = user_or_404(s, body.asker_id)
+async def request_location(body: LocationRequest, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    """Ask the target phone for a fresh fix; fall back to the last known one. Family only."""
+    require_self(me, body.asker_id)
+    target = s.get(User, body.target_id)
+    require_family(me, target)
+    asker = me
     fresh = False
     if hub.online(target.id):
         rid = f"loc-{target.id}-{now().timestamp()}"
@@ -179,15 +168,19 @@ class NewAlert(BaseModel):
 
 
 @router.post("/alerts")
-async def create_alert(body: NewAlert, s: Session = Depends(get_session)):
-    u = user_or_404(s, body.from_user_id)
+async def create_alert(body: NewAlert, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, body.from_user_id)
+    if body.to_user_id:
+        require_family(me, s.get(User, body.to_user_id))
+    u = me
     return await push_alert(s, family_id=u.family_id, from_user_id=u.id, kind=body.kind, title=body.title,
                             body=body.body, payload=body.payload | {"from_name": u.name}, to_user_id=body.to_user_id)
 
 
 @router.get("/alerts/{user_id}")
-def list_alerts(user_id: str, s: Session = Depends(get_session)):
-    u = user_or_404(s, user_id)
+def list_alerts(user_id: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, user_id)
+    u = me
     q = select(Alert).where(or_(Alert.to_user_id == u.id,
                                 (Alert.family_id == u.family_id) & (Alert.to_user_id == None))  # noqa: E711
                             ).order_by(Alert.created_at.desc()).limit(50)

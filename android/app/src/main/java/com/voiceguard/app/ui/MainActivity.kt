@@ -39,9 +39,12 @@ class MainActivity : ComponentActivity() {
                 val nav = rememberNavController()
                 val route by pending.collectAsState()
                 LaunchedEffect(route) {
-                    route?.let { if (Prefs.setupDone) nav.navigate(it) { launchSingleTop = true }; pending.value = null }
+                    route?.let { if (Prefs.setupDone && Prefs.registered) nav.navigate(it) { launchSingleTop = true }; pending.value = null }
                 }
-                AppNav(nav, if (Prefs.setupDone) "home" else "setup")
+                LaunchedEffect(Unit) {
+                    com.voiceguard.app.data.Api.authLost.collect { nav.navigate("setup") { popUpTo(0) } }
+                }
+                AppNav(nav, if (Prefs.setupDone && Prefs.registered) "home" else "setup")
             }
         }
     }

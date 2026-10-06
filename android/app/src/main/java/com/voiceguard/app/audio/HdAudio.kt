@@ -56,7 +56,8 @@ class HdAudio(private val ctx: Context, private val callId: String) {
             .setBufferSizeInBytes(maxOf(outMin, 6400)).setTransferMode(AudioTrack.MODE_STREAM).build()
             .also { it.play() }
 
-        val url = Prefs.serverUrl.replaceFirst("http", "ws") + "/ws/hd/$callId/${Prefs.userId}"
+        val url = Prefs.serverUrl.replaceFirst("http", "ws") + "/ws/hd/$callId/${Prefs.userId}?token=" +
+            android.net.Uri.encode(Prefs.token.orEmpty())
         ws = Api.client.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) { connected.value = true }
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {

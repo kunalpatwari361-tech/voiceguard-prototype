@@ -101,6 +101,28 @@ class RiskEvent(SQLModel, table=True):
     source: str = "call"
 
 
+class OtpRequest(SQLModel, table=True):
+    """Pending phone-number verification. Only a keyed hash of the code is stored."""
+    phone: str = Field(primary_key=True)
+    code_hash: str | None = None
+    provider: str = "console"
+    expires_at: dt.datetime | None = None
+    attempts: int = 0
+    last_sent_at: dt.datetime | None = None
+    window_start: dt.datetime | None = None
+    send_count: int = 0
+
+
+class AuthToken(SQLModel, table=True):
+    """Login token given to a phone after OTP verification. Only a keyed hash is stored."""
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: str = Field(index=True)
+    token_hash: str = Field(index=True, unique=True)
+    created_at: dt.datetime = Field(default_factory=now)
+    expires_at: dt.datetime
+    revoked: bool = False
+
+
 def init_db():
     SQLModel.metadata.create_all(engine)
     with Session(engine) as s:

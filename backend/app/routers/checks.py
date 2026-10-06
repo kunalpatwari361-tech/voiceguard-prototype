@@ -15,11 +15,12 @@ from sqlmodel import Session, select
 from ..ai import challenge, fingerprints, models, number_info, reply_delay
 from ..ai.audio_io import load_audio
 from ..ai.pipeline import _clean, analyze_voice
+from ..auth import current_user, require_family, require_self
 from ..db import BlockedNumber, RiskEvent, ScamReport, User, get_session, now
 from ..hub import hub
-from .common import age_min, family_ids, iso, push_alert, user_or_404
+from .common import age_min, family_ids, iso, push_alert
 
-router = APIRouter(prefix="/api", tags=["checks"])
+router = APIRouter(prefix="/api", tags=["checks"], dependencies=[Depends(current_user)])  # login required
 
 
 def _claimed(s: Session, claimed_user_id: str | None):
@@ -67,9 +68,12 @@ async def analyze(file: UploadFile = File(...),
                   hd_call: str | None = Form(None),          # verified / refused
                   simulate_phone: bool = Form(False),
                   skip_asr: bool = Form(False),
-                  s: Session = Depends(get_session)):
+                  me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, user_id)
+    if claimed_user_id:
+        require_family(me, s.get(User, claimed_user_id))
     y = load_audio(await file.read())
-    user = s.get(User, user_id) if user_id else None
+    user = me
     claimed, vp, loc = _claimed(s, claimed_user_id)
     nscore, ninfo = _number_score(s, number, user)
     result = await asyncio.to_thread(
@@ -123,7 +127,10 @@ def new_challenge(kind: str | None = None):
 
 @router.post("/challenge/{challenge_id}/verify")
 async def verify_challenge(challenge_id: str, file: UploadFile = File(...),
-                           claimed_user_id: str | None = Form(None), s: Session = Depends(get_session)):
+                           claimed_user_id: str | None = Form(None), me: User = Depends(current_user),
+                           s: Session = Depends(get_session)):
+    if claimed_user_id:
+        require_family(me, s.get(User, claimed_user_id))
     c = challenge.get(challenge_id)
     if not c:
         raise HTTPException(404, "challenge expired - start a new one")
@@ -188,8 +195,10 @@ def check_reply_delay(body: Gaps):
 
 # ------------------------------------------------------------------ numbers
 @router.get("/numbers/{number}")
-def number_lookup(number: str, user_id: str | None = None, s: Session = Depends(get_session)):
-    user = s.get(User, user_id) if user_id else None
+def number_lookup(number: str, user_id: str | None = None, me: User = Depends(current_user),
+                  s: Session = Depends(get_session)):
+    require_self(me, user_id)
+    user = me
     ni = lookup_number(s, number, user)
     reasons = s.exec(select(ScamReport.reason).where(ScamReport.number == ni["number"])
                      .order_by(ScamReport.created_at.desc()).limit(3)).all()
@@ -216,7 +225,8 @@ class Report(BaseModel):
 
 
 @router.post("/scamlist/report")
-async def report_number(body: Report, s: Session = Depends(get_session)):
+async def report_number(body: Report, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    body.reporter_id = me.id
     n = number_info.normalize(body.number)
     s.add(ScamReport(number=n, reporter_id=body.reporter_id, reason=body.reason))
     s.commit()
@@ -231,8 +241,9 @@ class Block(BaseModel):
 
 
 @router.get("/blocked/{user_id}")
-def blocked_list(user_id: str, s: Session = Depends(get_session)):
-    u = user_or_404(s, user_id)
+def blocked_list(user_id: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, user_id)
+    u = me
     ids = family_ids(s, u.family_id) or [u.id]
     rows = s.exec(select(BlockedNumber).where(BlockedNumber.user_id.in_(ids))).all()
     names = {x.id: x.name for x in s.exec(select(User).where(User.id.in_(ids))).all()}
@@ -241,7 +252,8 @@ def blocked_list(user_id: str, s: Session = Depends(get_session)):
 
 
 @router.post("/blocked")
-def block_number(body: Block, s: Session = Depends(get_session)):
+def block_number(body: Block, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, body.user_id)
     n = number_info.normalize(body.number)
     if not s.exec(select(BlockedNumber).where(BlockedNumber.user_id == body.user_id, BlockedNumber.number == n)).first():
         s.add(BlockedNumber(user_id=body.user_id, number=n))
@@ -250,7 +262,8 @@ def block_number(body: Block, s: Session = Depends(get_session)):
 
 
 @router.delete("/blocked/{user_id}/{number}")
-def unblock_number(user_id: str, number: str, s: Session = Depends(get_session)):
+def unblock_number(user_id: str, number: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, user_id)
     n = number_info.normalize(number)
     for r in s.exec(select(BlockedNumber).where(BlockedNumber.user_id == user_id, BlockedNumber.number == n)).all():
         s.delete(r)
@@ -259,7 +272,8 @@ def unblock_number(user_id: str, number: str, s: Session = Depends(get_session))
 
 
 @router.get("/risk/recent/{user_id}")
-def recent_risk(user_id: str, minutes: int = 30, s: Session = Depends(get_session)):
+def recent_risk(user_id: str, minutes: int = 30, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, user_id)
     since = now() - dt.timedelta(minutes=minutes)
     ev = s.exec(select(RiskEvent).where(RiskEvent.user_id == user_id, RiskEvent.created_at >= since)
                 .order_by(RiskEvent.score.desc())).first()

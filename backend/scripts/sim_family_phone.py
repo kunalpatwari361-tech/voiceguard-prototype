@@ -1,6 +1,6 @@
 """Pretend to be a second family phone (e.g. Rahul) when you only have one real device.
 
-It registers, joins the family with the invite code, saves a voice print from a real recording,
+It signs up with an OTP (like the app), joins the family with the invite code, saves a voice print from a real recording,
 then stays online: reports "not on a call" + a location, answers "Are you really calling?" requests
 (auto, or as told by --answer) and prints every alert it receives.
 
@@ -16,6 +16,17 @@ import httpx
 import websockets
 
 
+def _code_from_dev_log(phone: str) -> str | None:
+    """Demo mode prints codes to backend/data/dev_otp.log on this same laptop."""
+    log = Path(__file__).resolve().parents[1] / "data" / "dev_otp.log"
+    if not log.exists():
+        return None
+    for line in reversed(log.read_text(encoding="utf-8").splitlines()):
+        if f"OTP for {phone}:" in line:
+            return line.rsplit(":", 1)[1].strip()
+    return None
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--server", default="http://127.0.0.1:8000")
@@ -29,10 +40,21 @@ async def main():
     ap.add_argument("--lon", type=float, default=73.8077)
     ap.add_argument("--state", default="idle", choices=["idle", "offhook"])
     ap.add_argument("--answer", default=None, choices=[None, "yes", "no"], help="reply to verify requests")
+    ap.add_argument("--otp", default=None, help="OTP code (otherwise read from data/dev_otp.log in demo mode, or asked)")
     a = ap.parse_args()
 
     async with httpx.AsyncClient(base_url=a.server, timeout=120) as c:
-        u = (await c.post("/api/users", json={"name": a.name, "phone": a.phone, "role": a.role})).json()
+        r = await c.post("/api/auth/otp/start", json={"phone": a.phone})
+        if r.status_code != 200:
+            raise SystemExit(f"OTP request failed: {r.text}")
+        phone = r.json()["phone"]
+        code = a.otp or _code_from_dev_log(phone) or input(f"Enter the OTP sent to {phone}: ").strip()
+        r = await c.post("/api/auth/otp/verify", json={"phone": phone, "code": code, "name": a.name, "role": a.role})
+        if r.status_code != 200:
+            raise SystemExit(f"OTP verification failed: {r.text}")
+        token = r.json()["token"]
+        u = r.json()["user"]
+        c.headers["Authorization"] = f"Bearer {token}"
         f = (await c.post("/api/family/join", json={"user_id": u["id"], "code": a.code})).json()
         print(f"{a.name} ({u['id']}) joined {f['name']}: {[m['name'] for m in f['members']]}")
         vp = Path(a.voice)
@@ -40,7 +62,7 @@ async def main():
             r = await c.post(f"/api/voiceprint/{u['id']}", files={"file": (vp.name, vp.read_bytes())}, data={"reset": "true"})
             print("voice print:", r.json().get("message", r.text))
 
-    ws_url = a.server.replace("http", "ws") + f"/ws/{u['id']}"
+    ws_url = a.server.replace("http", "ws") + f"/ws/{u['id']}?token={token}"
     while True:
         try:
             async with websockets.connect(ws_url, ping_interval=20) as ws:

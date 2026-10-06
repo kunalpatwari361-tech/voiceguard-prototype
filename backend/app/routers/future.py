@@ -16,7 +16,8 @@ from ..ai.number_info import normalize
 from ..config import ENTERPRISE_API_KEY
 from ..db import RiskEvent, ScamReport, User, get_session, now
 from ..training import federated
-from .common import iso, push_alert, user_or_404
+from ..auth import current_user, require_self
+from .common import iso, push_alert
 
 router = APIRouter(tags=["future"])
 
@@ -29,9 +30,10 @@ class PoliceJoin(BaseModel):
 
 
 @router.post("/api/future/police-join")
-async def police_join(body: PoliceJoin, s: Session = Depends(get_session)):
+async def police_join(body: PoliceJoin, me: User = Depends(current_user), s: Session = Depends(get_session)):
     """Simulation: in production a cyber-cell officer would be bridged into the live call by the telecom."""
-    u = user_or_404(s, body.user_id)
+    require_self(me, body.user_id)
+    u = me
     ticket = "CC-" + uuid.uuid4().hex[:6].upper()
     await push_alert(s, family_id=u.family_id, from_user_id=u.id, kind="police_join",
                      title=f"{u.name} requested police to join a suspicious call",
@@ -75,20 +77,22 @@ def telecom_lookup(number: str, s: Session = Depends(get_session)):
 
 # ---------------------------------------------------------------- 30 voice shield
 @router.post("/api/future/voice-shield/protect")
-async def shield_protect(user_id: str = Form(...), file: UploadFile = File(...)):
+async def shield_protect(user_id: str = Form(...), file: UploadFile = File(...), me: User = Depends(current_user)):
+    require_self(me, user_id)
     y = load_audio(await file.read())
     return Response(to_wav_bytes(voice_shield.protect(y, user_id)), media_type="audio/wav",
                     headers={"Content-Disposition": 'attachment; filename="shielded.wav"'})
 
 
 @router.post("/api/future/voice-shield/detect")
-async def shield_detect(user_id: str = Form(...), file: UploadFile = File(...)):
+async def shield_detect(user_id: str = Form(...), file: UploadFile = File(...), me: User = Depends(current_user)):
+    require_self(me, user_id)
     return voice_shield.detect(load_audio(await file.read()), user_id)
 
 
 # ---------------------------------------------------------------- 31 smart learning (federated)
 @router.get("/api/future/federated")
-def federated_demo(rounds: int = 8, clients: int = 5):
+def federated_demo(rounds: int = 8, clients: int = 5, me: User = Depends(current_user)):
     return federated.simulate(rounds=rounds, n_clients=clients)
 
 

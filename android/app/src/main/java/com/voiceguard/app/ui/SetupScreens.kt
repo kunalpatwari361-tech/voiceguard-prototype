@@ -54,6 +54,11 @@ import com.voiceguard.app.data.obj
 import com.voiceguard.app.data.str
 import com.voiceguard.app.service.GuardService
 import kotlinx.coroutines.launch
+import com.voiceguard.app.data.int
+import kotlinx.coroutines.delay
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material.icons.filled.Sms
 
 @Composable
 fun SetupScreen(onDone: () -> Unit) {
@@ -68,6 +73,27 @@ fun SetupScreen(onDone: () -> Unit) {
     var busy by remember { mutableStateOf<String?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
     var health by remember { mutableStateOf<String?>(null) }
+    var otpSent by remember { mutableStateOf(false) }
+    var otp by remember { mutableStateOf("") }
+    var otpMode by remember { mutableStateOf<String?>(null) }
+    var sentTo by remember { mutableStateOf("") }
+    var resendIn by remember { mutableIntStateOf(0) }
+    LaunchedEffect(resendIn) { if (resendIn > 0) { delay(1000); resendIn-- } }
+
+    /** Ask the server to send a 6-digit code to this number (SMS, or the laptop window in demo mode). */
+    fun sendOtp() {
+        Prefs.serverUrlRaw = server.trim()
+        scope.launch {
+            busy = "…"; err = null
+            runCatching { Api.post("/api/auth/otp/start", json("phone" to phone)).asObj() }
+                .onSuccess { r ->
+                    otpSent = true; otp = ""
+                    otpMode = r.str("provider"); sentTo = r.str("phone") ?: phone
+                    resendIn = r.int("resend_after") ?: 30
+                }.onFailure { err = it.message }
+            busy = null
+        }
+    }
 
     Screen(tr("Welcome to VoiceGuard", "VoiceGuard में स्वागत है"), onBack = null) {
         Text(tr("Stops AI voice-clone scam calls. Set up takes 2 minutes.", "AI आवाज़-क्लोन ठगी कॉल रोकता है। सेटअप में 2 मिनट लगेंगे।"), color = VG.muted)
@@ -91,26 +117,53 @@ fun SetupScreen(onDone: () -> Unit) {
         if (step >= 0) Section(tr("2. About you", "2. आपकी जानकारी"), Icons.Default.Person) {
             OutlinedTextField(name, { name = it }, label = { Text(tr("Your name", "आपका नाम")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(phone, { phone = it }, label = { Text(tr("Your mobile number", "आपका मोबाइल नंबर")) }, singleLine = true,
+                enabled = !otpSent && !Prefs.registered,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), modifier = Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("parent" to tr("Parent", "माता-पिता"), "child" to tr("Son/Daughter", "बेटा/बेटी"), "member" to tr("Other", "अन्य")).forEach { (k, l) ->
                     FilterChip(role == k, { role = k }, label = { Text(l) })
                 }
             }
-            if (!Prefs.registered) BigButton(tr("Continue", "आगे बढ़ें"), enabled = name.isNotBlank() && phone.length >= 10 && busy == null) {
-                Prefs.serverUrlRaw = server.trim()
-                scope.launch {
-                    busy = "…"; err = null
-                    runCatching { Api.post("/api/users", json("name" to name.trim(), "phone" to phone, "role" to role)).asObj() }
-                        .onSuccess { u ->
+            if (Prefs.registered) {
+                Text("✓ ${Prefs.name} · ${Prefs.phone} · " + tr("number verified", "नंबर सत्यापित"), color = VG.green)
+            } else if (!otpSent) {
+                if (Prefs.userId != null) Text(tr("Please verify your mobile number to continue using VoiceGuard.",
+                    "VoiceGuard इस्तेमाल करते रहने के लिए अपना मोबाइल नंबर सत्यापित करें।"), color = VG.amber, fontSize = 13.sp)
+                BigButton(tr("Send OTP", "OTP भेजें"), Icons.Default.Sms, enabled = name.isNotBlank() && phone.filter { it.isDigit() }.length >= 10 && busy == null) {
+                    sendOtp()
+                }
+            } else {
+                Text(tr("Enter the 6-digit code sent to $sentTo", "$sentTo पर भेजा गया 6 अंकों का कोड डालें"), fontWeight = FontWeight.SemiBold)
+                if (otpMode == "console") Text(tr("Demo mode: no SMS is sent. The code is shown in the laptop server window (backend\\data\\dev_otp.log).",
+                    "डेमो मोड: SMS नहीं भेजा जाता। कोड लैपटॉप सर्वर विंडो में दिखता है।"), color = VG.amber, fontSize = 13.sp)
+                OutlinedTextField(otp, { otp = it.filter { c -> c.isDigit() }.take(6) }, label = { Text("OTP") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 24.sp, letterSpacing = 8.sp, fontWeight = FontWeight.Bold),
+                    modifier = Modifier.fillMaxWidth())
+                BigButton(tr("Verify & continue", "सत्यापित करें"), Icons.Default.CheckCircle, enabled = otp.length == 6 && busy == null) {
+                    scope.launch {
+                        busy = "…"; err = null
+                        runCatching {
+                            Api.post("/api/auth/otp/verify", json("phone" to sentTo, "code" to otp, "name" to name.trim(), "role" to role)).asObj()
+                        }.onSuccess { r ->
+                            val u = r.obj("user")
+                            Prefs.token = r.str("token")
                             Prefs.userId = u.str("id"); Prefs.name = u.str("name"); Prefs.phone = u.str("phone"); Prefs.role = role
                             Prefs.familyId = u.str("family_id")
+                            runCatching { Sync.family() }
                             Live.restart()
+                            otpSent = false
                             step = 2
                         }.onFailure { err = it.message }
-                    busy = null
+                        busy = null
+                    }
                 }
-            } else Text("✓ ${Prefs.name} · ${Prefs.phone}", color = VG.green)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SmallButton(if (resendIn > 0) tr("Resend in ${resendIn}s", "${resendIn} सेकंड में दोबारा") else tr("Resend code", "कोड दोबारा भेजें"),
+                        enabled = resendIn == 0 && busy == null) { sendOtp() }
+                    SmallButton(tr("Change number", "नंबर बदलें")) { otpSent = false; otp = "" }
+                }
+            }
         }
 
         if (step >= 2) Section(tr("3. Family Circle", "3. परिवार सर्कल"), Icons.Default.Group) {
@@ -242,6 +295,7 @@ fun SettingsScreen(nav: NavHostController, back: () -> Unit) {
         Section(tr("Account", "खाता"), Icons.Default.Person) {
             Kv("Name", Prefs.name); Kv("Phone", Prefs.phone); Kv("User ID", Prefs.userId); Kv("Family ID", Prefs.familyId)
             SmallButton(tr("Sign out of this phone", "इस फ़ोन से साइन आउट")) {
+                kotlinx.coroutines.MainScope().launch { runCatching { Api.post("/api/auth/logout") }; Prefs.token = null }
                 Live.stop()
                 ctx.stopService(Intent(ctx, GuardService::class.java))
                 Prefs.userId = null; Prefs.familyId = null; Prefs.familyJson = null; Prefs.setupDone = false

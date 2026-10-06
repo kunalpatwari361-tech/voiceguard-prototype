@@ -11,12 +11,22 @@ from sqlmodel import Session, select
 from ..ai.number_info import normalize
 from ..config import EVIDENCE_DIR
 from ..db import Evidence, User, get_session
-from .common import iso, push_alert, user_or_404
+from ..auth import current_user, require_family, require_self
+from .common import iso, push_alert
 
 router = APIRouter(prefix="/api/evidence", tags=["evidence"])
 
 CHAKSHU_URL = "https://sancharsaathi.gov.in/sfc/"
 CYBERCRIME_URL = "https://cybercrime.gov.in/"
+
+
+def _owned(s: Session, me: User, evidence_id: str) -> Evidence:
+    """Evidence is visible to its owner and their family only (browser links carry ?token=)."""
+    e = s.get(Evidence, evidence_id)
+    if not e:
+        raise HTTPException(404)
+    require_family(me, s.get(User, e.user_id))
+    return e
 
 
 def _view(e: Evidence) -> dict:
@@ -30,8 +40,9 @@ def _view(e: Evidence) -> dict:
 async def save(user_id: str = Form(...), number: str | None = Form(None), claimed_name: str | None = Form(None),
                source: str = Form("call"), risk_score: int | None = Form(None), level: str | None = Form(None),
                transcript: str | None = Form(None), notes: str | None = Form(None), report_json: str = Form("{}"),
-               file: UploadFile | None = File(None), s: Session = Depends(get_session)):
-    user_or_404(s, user_id)
+               file: UploadFile | None = File(None), me: User = Depends(current_user),
+               s: Session = Depends(get_session)):
+    require_self(me, user_id)
     e = Evidence(user_id=user_id, number=normalize(number) if number else None, claimed_name=claimed_name,
                  source=source, risk_score=risk_score, level=level, transcript=transcript, notes=notes,
                  report_json=report_json)
@@ -46,8 +57,9 @@ async def save(user_id: str = Form(...), number: str | None = Form(None), claime
 
 
 @router.get("/user/{user_id}")
-def list_for_user(user_id: str, s: Session = Depends(get_session)):
-    u = user_or_404(s, user_id)
+def list_for_user(user_id: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    require_self(me, user_id)
+    u = me
     ids = [u.id]
     if u.family_id:  # family helpers can see a parent's evidence to help report it
         ids = [m.id for m in s.exec(select(User).where(User.family_id == u.family_id)).all()]
@@ -56,16 +68,16 @@ def list_for_user(user_id: str, s: Session = Depends(get_session)):
 
 
 @router.get("/{evidence_id}")
-def get_one(evidence_id: str, s: Session = Depends(get_session)):
-    e = s.get(Evidence, evidence_id)
+def get_one(evidence_id: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    e = _owned(s, me, evidence_id)
     if not e:
         raise HTTPException(404)
     return _view(e)
 
 
 @router.get("/{evidence_id}/audio")
-def audio(evidence_id: str, s: Session = Depends(get_session)):
-    e = s.get(Evidence, evidence_id)
+def audio(evidence_id: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    e = _owned(s, me, evidence_id)
     if not e or not e.audio_file:
         raise HTTPException(404)
     return FileResponse(EVIDENCE_DIR / e.audio_file, media_type="audio/wav", filename=f"voiceguard-{e.id}.wav")
@@ -83,9 +95,9 @@ def complaint_text(e: Evidence, victim: User | None) -> str:
 
 
 @router.get("/{evidence_id}/chakshu")
-def chakshu(evidence_id: str, s: Session = Depends(get_session)):
+def chakshu(evidence_id: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
     """Pre-filled answers for the Chakshu form on Sanchar Saathi (no public API, so the user pastes them)."""
-    e = s.get(Evidence, evidence_id)
+    e = _owned(s, me, evidence_id)
     if not e:
         raise HTTPException(404)
     victim = s.get(User, e.user_id)
@@ -106,8 +118,8 @@ def chakshu(evidence_id: str, s: Session = Depends(get_session)):
 
 
 @router.get("/{evidence_id}/report.html", response_class=HTMLResponse)
-def report_html(evidence_id: str, s: Session = Depends(get_session)):
-    e = s.get(Evidence, evidence_id)
+def report_html(evidence_id: str, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    e = _owned(s, me, evidence_id)
     if not e:
         raise HTTPException(404)
     victim = s.get(User, e.user_id)
@@ -144,9 +156,10 @@ class CyberCell(BaseModel):
 
 
 @router.post("/cyber-cell")
-async def family_calls_cyber_cell(body: CyberCell, s: Session = Depends(get_session)):
+async def family_calls_cyber_cell(body: CyberCell, me: User = Depends(current_user), s: Session = Depends(get_session)):
     """Ask the family to report on the victim's behalf (elders often can't navigate 1930 alone)."""
-    u = user_or_404(s, body.user_id)
+    require_self(me, body.user_id)
+    u = me
     return await push_alert(s, family_id=u.family_id, from_user_id=u.id, kind="cyber_cell",
                             title=f"{u.name} needs help reporting a scam call",
                             body=body.message or "Please call 1930 / file at cybercrime.gov.in for them. Evidence is saved.",
