@@ -9,11 +9,20 @@ Turns clean 16 kHz audio into what a real mobile call delivers:
 The output is resampled back to 16 kHz so the same models can consume it.
 """
 import numpy as np
-from scipy.signal import butter, sosfilt
 
 from .audio_io import resample
 
-_SOS = butter(4, [300, 3400], btype="bandpass", fs=8000, output="sos")
+
+def _bandpass(x: np.ndarray, sr: int, lo: float, hi: float, order: int = 4) -> np.ndarray:
+    """Zero-phase Butterworth-shaped band-pass done in the frequency domain (NumPy only).
+    SciPy is avoided on purpose: Windows Smart App Control can block its compiled DLLs."""
+    n = len(x)
+    if n == 0:
+        return x
+    f = np.fft.rfftfreq(n, 1 / sr)
+    f[0] = 1e-6
+    h = 1 / np.sqrt(1 + (f / hi) ** (2 * order)) / np.sqrt(1 + (lo / f) ** (2 * order))
+    return np.fft.irfft(np.fft.rfft(x) * h, n).astype(np.float32)
 
 
 def _mulaw(x: np.ndarray, mu: int = 255) -> np.ndarray:
@@ -25,8 +34,7 @@ def _mulaw(x: np.ndarray, mu: int = 255) -> np.ndarray:
 
 def _lowbitrate(x: np.ndarray, sr: int = 8000) -> np.ndarray:
     """Rough AMR-NB stand-in: tighter band, coarse quantisation, smeared spectrum."""
-    sos = butter(6, [250, 3000], btype="bandpass", fs=sr, output="sos")
-    x = sosfilt(sos, x)
+    x = _bandpass(x, sr, 250, 3000, order=6)
     peak = np.max(np.abs(x)) + 1e-9
     x = np.round(x / peak * 31) / 31 * peak  # ~6-bit
     return x
@@ -37,7 +45,7 @@ def phone_channel(y: np.ndarray, sr: int = 16000, codec: str = "g711",
                   seed: int | None = None) -> np.ndarray:
     rng = np.random.default_rng(seed)
     x = resample(y, sr, 8000)
-    x = sosfilt(_SOS, x)
+    x = _bandpass(x, 8000, 300, 3400)
     if codec == "g711":
         x = _mulaw(x)
     elif codec == "lowbitrate":
