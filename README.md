@@ -178,6 +178,31 @@ Every account is created by **verifying the phone number with a one-time code**;
 
 Partner APIs (bank `/api/v1/enterprise/*`, telecom `/api/v1/telecom/flag`) use their own API keys instead.
 
+## Three protection layers
+
+The home screen groups the features by *when* they help:
+
+| Layer | When | Features |
+|---|---|---|
+| 1 · Spam protection | before you answer | Spam warning + caller-ID card, community scam list, block list, Number Info, Voice Note Check |
+| 2 · During the call | while you are talking | **AI live check** (top of the call screen), **Tell family – without hanging up** (app alert · SMS · WhatsApp), Are you really calling?, HD call, Voice Test, Panic button / Panic Pause |
+| 3 · After the scam | after hanging up | Call-Back Alert, evidence, 1930, Chakshu, family calls cyber cell, family alerts |
+
+**AI live check on a normal call.** VoiceGuard puts the call on speaker and checks the caller every 6 seconds
+(AI voice, voice fingerprints, voice print; scam words every 3rd check). Two things make this work on a real phone:
+- *Your own voice is removed first.* The microphone hears both people; 1.5-second pieces that match **your** saved
+  voice print (*My Voice Print*) are cut out on the server (`ai/separate.py`), so a real human (you) cannot hide an AI
+  caller. Save your own voice print once for this.
+- *Android mutes the microphone for apps during a call.* Accessibility apps are the exception, so turn on
+  **Settings → Accessibility → Installed apps → VoiceGuard call listening** once. It reads no screen content.
+  If the check still hears silence, the card says so – then use *Are you really calling?* / HD call, which need no
+  call audio. (If Android shows "Restricted setting": *App info → ⋮ → Allow restricted settings*.)
+
+**Tell family during a call.** Three buttons under the call controls: *App alert* (push to every family phone),
+*SMS* (sent straight from your phone on the call's SIM – works even if they have no internet; shows you the text
+first) and *WhatsApp* (opens their chat with the message typed in – WhatsApp only lets you press Send yourself).
+The message contains the caller's number, who they claim to be, the AI risk score and a map link to where you are.
+
 ## Alerts when the app is closed (push notifications)
 
 The live WebSocket link is the fast path. **Alerts, "Are you really calling?" questions and HD call rings are also
@@ -237,7 +262,7 @@ One UI may hold pushes for "sleeping" apps.
 | 3 | AI Voice Detector | Real (trained model) | `ai/models.py`, `training/train_detector.py` |
 | 4 | Reverse Engineering Engine | Real | `ai/fingerprints.py` |
 | 5 | Source Tracing | Heuristic prototype | `ai/source_trace.py` |
-| 6 | Live Call Check | Real time: HD/demo calls fully; normal calls via loudspeaker every 6 s (auto for unknown callers)* | `ui/LiveCall.kt`, `routers/hdcall.py`, `ui/CheckScreen.kt` |
+| 6 | Live Call Check | Real time, at the top of the call screen: HD/demo calls fully; normal calls via loudspeaker every 6 s (auto for unknown callers), your own voice cut out by voice print, mic unblocked by "VoiceGuard call listening"* | `ui/LiveCall.kt`, `ai/separate.py`, `service/CallListenService.kt` |
 | 7 | Voice Note Check | Real (share WhatsApp audio to app) | `audio/Decoder.kt`, `ui/CheckScreen.kt` |
 | 8 | Are You Really Calling? | Real | `routers/verify.py`, `ui/CallTools.kt`, `ui/HdScreens.kt` |
 | 9 | Family Location Check | Real (GPS + map) | `service/Loc.kt`, `ui/FamilyScreens.kt` |
@@ -248,7 +273,7 @@ One UI may hold pushes for "sleeping" apps.
 | 14 | Scam Words Alert | Real (Whisper + rules, optional Claude) | `ai/scam_text.py` |
 | 15 | Number Info | Real (prefix rules + community data) | `ai/number_info.py` |
 | 16 | Final Risk Score | Real | `ai/risk.py` |
-| 17 | Family Alert | Automatic: DANGER result, reported/high-risk caller, fake "Are you calling?", Panic – with a Call button | `routers/common.py`, `service/GuardService.kt` |
+| 17 | Family Alert | Automatic: DANGER result, reported/high-risk caller, fake "Are you calling?", Panic – with a Call button. During a call one tap also sends it by **SMS** or **WhatsApp** without hanging up | `routers/common.py`, `service/Inbox.kt`, `ui/TellFamily.kt` |
 | 18 | Call-Back Alert | Real | `service/GuardService.kt (CallWatch)`, `routers/verify.py` |
 | 19 | Panic Pause | Real (usage access + overlay) | `service/GuardService.kt`, `ui/PanicPauseActivity.kt` |
 | 20 | Save Evidence | Real | `routers/evidence.py` |

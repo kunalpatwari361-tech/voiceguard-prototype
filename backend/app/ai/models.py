@@ -145,6 +145,14 @@ class SpeakerVerifier:
         emb = torch.nn.functional.normalize(emb, dim=-1)[0].numpy()
         return emb.astype(np.float32)
 
+    @torch.inference_mode()
+    def embed_many(self, ys: list[np.ndarray], sr: int = 16000) -> np.ndarray:
+        """One embedding per equal-length piece, in a single batch (used to find the phone owner's own voice)."""
+        with INFER_LOCK:
+            inputs = self.fe(list(ys), sampling_rate=sr, return_tensors="pt", padding=True)
+            emb = self.model(**inputs).embeddings
+        return torch.nn.functional.normalize(emb, dim=-1).numpy().astype(np.float32)
+
     def compare(self, a: np.ndarray, b: np.ndarray) -> dict:
         sim = float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
         verdict = "match" if sim >= self.SAME else "uncertain" if sim >= self.MAYBE else "different"

@@ -28,6 +28,10 @@ object Loc {
     private fun lastKnown(lm: LocationManager): Location? =
         lm.getProviders(true).mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }.maxByOrNull { it.time }
 
+    /** Instant, no waiting for GPS: the newest position the phone already knows (for SMS / WhatsApp alerts). */
+    fun lastKnownQuick(ctx: Context): Location? =
+        if (granted(ctx)) lastKnown(ctx.getSystemService(LocationManager::class.java)) else null
+
     @SuppressLint("MissingPermission")
     suspend fun current(ctx: Context): Location? {
         if (!granted(ctx)) return null

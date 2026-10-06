@@ -110,6 +110,7 @@ fun AppNav(nav: NavHostController, start: String) {
                 incoming = it.arguments?.getBoolean("incoming") ?: true, back = back)
         }
         composable("alerts") { AlertsScreen(back) }
+        composable("tellfamily") { TellFamilyScreen(back) }
         composable("scamlist") { ScamListScreen(nav, back) }
         composable("evidence") { EvidenceListScreen(nav, back) }
         composable("evidence/{id}") { EvidenceDetailScreen(it.arguments?.getString("id")!!, back) }

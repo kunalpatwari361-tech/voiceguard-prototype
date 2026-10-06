@@ -229,6 +229,18 @@ with TestClient(app) as c:
     print("   real voice:", b["risk"]["score"], b["risk"]["level"], "ai:", b["ai_voice"]["fake_prob"], "vp:", b["voice_print"])
     check("real Rahul voice -> not danger", b["risk"]["level"] != "danger", f"{b['risk']['score']}/100")
 
+    # Live call on Rahul's phone: the mic hears Rahul himself AND the caller -> his own voice is cut out first
+    own = load_audio(Path(r"K:\vgtools\eval\real\asr_2.flac").read_bytes())     # same speaker as his voice print
+    lo = c.post("/api/analyze", files={"file": ("l.wav", to_wav_bytes(own))}, data={
+        "user_id": rahul["id"], "source": "live_call", "skip_asr": "true"}, headers=hr).json()
+    check("live check: only the owner's voice -> asks for the caller", lo.get("error") == "only_owner", lo.get("message", ""))
+    mix = np.concatenate([own[:48000], y[:96000]])
+    lm = c.post("/api/analyze", files={"file": ("m.wav", to_wav_bytes(mix))}, data={
+        "user_id": rahul["id"], "source": "live_call", "skip_asr": "true"}, headers=hr).json()
+    f = lm.get("caller_focus") or {}
+    check("live check: owner removed, AI caller still caught", lm.get("ok") and f.get("owner_s", 0) >= 1.5 and lm["ai_voice"]["fake_prob"] >= 0.5,
+          f"owner {f.get('owner_s')}s removed, caller {f.get('caller_s')}s, AI {lm.get('ai_voice', {}).get('fake_prob')}")
+
     # Voice test with the AI's attempt to laugh
     ch = c.get("/api/challenge/new", params={"kind": "laugh"}, headers=hp).json()
     lf = (ROOT / "demo_audio" / sc["challenge_responses"]["laugh"]["phone"]).read_bytes()

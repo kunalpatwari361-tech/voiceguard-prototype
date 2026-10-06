@@ -103,7 +103,7 @@ class InCallActivity : ComponentActivity() {
                     else runCatching { if (proximity?.isHeld == true) proximity?.release() }
                     // Auto Check Every Call (27): unknown callers get the live voice check as soon as the call connects
                     if (state == Call.STATE_ACTIVE && Prefs.autoCheck && family == null && contactName == null)
-                        live.start(scope) { if (!CallManager.speaker.value) CallManager.toggleSpeaker() }
+                        live.start(this@InCallActivity, scope) { if (!CallManager.speaker.value) CallManager.toggleSpeaker() }
                     if (state == Call.STATE_DISCONNECTED && call == null) {
                         live.stop(); ended = true
                         CallWatch.onCallEnded(this@InCallActivity)
@@ -136,10 +136,13 @@ class InCallActivity : ComponentActivity() {
                             state == Call.STATE_ACTIVE && connectedAt > 0 -> "%02d:%02d".format((now - connectedAt) / 60000, (now - connectedAt) / 1000 % 60)
                             else -> ""
                         }, color = VG.muted, modifier = Modifier.padding(top = 4.dp))
-                        if (risk != null) Text(tr("Live risk ", "लाइव जोखिम ") + "${risk.int("score")}/100", color = VG.level(risk.str("level")),
-                            fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     }
-                    info?.let { if ((it.num("spam_score") ?: 0.0) >= 0.3 || contactName == null) NumberInfoCard(it) }
+                    val inCall = state != Call.STATE_RINGING && state != Call.STATE_SELECT_PHONE_ACCOUNT && !ended
+                    // AI live check right under the caller, so the verdict is visible during the whole call
+                    if (inCall) LiveRiskPanel(live, tools) {
+                        live.start(this@InCallActivity, scope) { if (!CallManager.speaker.value) CallManager.toggleSpeaker() }
+                    }
+                    if (state == Call.STATE_RINGING) info?.let { if ((it.num("spam_score") ?: 0.0) >= 0.3 || contactName == null) NumberInfoCard(it) }
 
                     if (!ended) when (state) {
                         Call.STATE_SELECT_PHONE_ACCOUNT -> {
@@ -177,12 +180,20 @@ class InCallActivity : ComponentActivity() {
                                     }
                                 }
                             }
+                            TellFamilyBar(message = {
+                                FamilyMessage.text(this@InCallActivity, number, tools.claimedName, risk.int("score"))
+                            }) {
+                                notifyFamily("${Prefs.name} is on a suspicious call",
+                                    "Caller ${Numbers.pretty(number)}" + (tools.claimedName?.let { " says they are $it" } ?: "") +
+                                        (risk.int("score")?.let { ". Risk $it/100" } ?: "") + ". Call ${Prefs.name} now.",
+                                    mapOf("number" to number, "victim_phone" to Prefs.phone, "from_name" to Prefs.name))
+                            }
                             BigButton(tr("End call", "कॉल काटें"), Icons.Default.CallEnd, VG.red) { CallManager.hangup() }
                         }
                     }
-                    if (state != Call.STATE_RINGING && state != Call.STATE_SELECT_PHONE_ACCOUNT && !ended) {
-                        LiveCheckCard(live) { live.start(scope) { if (!CallManager.speaker.value) CallManager.toggleSpeaker() } }
-                        CallTools(tools, null) { _ ->
+                    if (inCall) {
+                        info?.let { if ((it.num("spam_score") ?: 0.0) >= 0.3 || contactName == null) NumberInfoCard(it) }
+                        CallTools(tools, null, showNotify = false) { _ ->
                             if (!CallManager.speaker.value) CallManager.toggleSpeaker()
                             com.voiceguard.app.audio.Recorder().let { r -> r.record(7).takeUnless { r.allSilent } }
                         }

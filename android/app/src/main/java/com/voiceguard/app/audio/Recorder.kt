@@ -24,6 +24,10 @@ class Recorder(private val source: Int = MediaRecorder.AudioSource.MIC) {
     suspend fun record(maxSeconds: Int = 30, onLevel: (Double) -> Unit = {}): ShortArray = withContext(Dispatchers.IO) {
         val min = AudioRecord.getMinBufferSize(Wav.SR, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val rec = AudioRecord(source, Wav.SR, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, 3200))
+        if (rec.state != AudioRecord.STATE_INITIALIZED) {   // this microphone path is not available on this phone
+            rec.release()
+            throw IllegalStateException("audio source $source unavailable")
+        }
         val out = ShortArray(Wav.SR * maxSeconds)
         var n = 0
         val buf = ShortArray(800)

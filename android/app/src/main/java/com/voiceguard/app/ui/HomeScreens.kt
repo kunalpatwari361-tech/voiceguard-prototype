@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocalPolice
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PanTool
+import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Science
@@ -116,13 +118,22 @@ fun HomeScreen(nav: NavHostController) {
                 Triple(Icons.Default.Dialpad, tr("Dialer", "डायलर") to tr("Calls with built-in scam check", "स्कैम जाँच वाला डायलर"), "dialer"),
                 Triple(Icons.Default.Group, tr("Family Circle", "परिवार सर्कल") to tr("Verify · location · HD call", "पुष्टि · लोकेशन · HD कॉल"), "family"),
                 Triple(Icons.Default.PlayCircle, tr("Demo scam call", "डेमो स्कैम कॉल") to tr("Try an AI clone call safely", "AI क्लोन कॉल आज़माएं"), "demo"),
-                Triple(Icons.Default.Mic, tr("Live Call Check", "लाइव कॉल जाँच") to tr("Put call on speaker & check", "स्पीकर पर रखकर जाँचें"), "check?mode=record"),
-                Triple(Icons.Default.GraphicEq, tr("Voice Note Check", "वॉइस नोट जाँच") to tr("WhatsApp audio, recordings", "WhatsApp ऑडियो"), "check?mode=file"),
                 Triple(Icons.Default.RecordVoiceOver, tr("My Voice Print", "मेरा वॉइस प्रिंट") to tr("So family can verify you", "ताकि परिवार पहचान सके"), "voiceprint"),
             ), nav)
-            Text(tr("Spam & after the scam", "स्पैम और ठगी के बाद"), color = VG.muted)
+            LayerTitle(1, tr("Spam protection – before you answer", "स्पैम सुरक्षा – कॉल उठाने से पहले"), VG.blue)
             Grid(listOf(
                 Triple(Icons.Default.Block, tr("Scam list & block", "स्कैम सूची व ब्लॉक") to tr("Community reports", "समुदाय की रिपोर्ट"), "scamlist"),
+                Triple(Icons.Default.GraphicEq, tr("Voice Note Check", "वॉइस नोट जाँच") to tr("WhatsApp audio, recordings", "WhatsApp ऑडियो"), "check?mode=file"),
+            ), nav)
+            LayerTitle(2, tr("During the call – live protection", "कॉल के दौरान – लाइव सुरक्षा"), VG.violet)
+            Grid(listOf(
+                Triple(Icons.Default.Mic, tr("Live Call Check", "लाइव कॉल जाँच") to tr("AI listens on speaker", "स्पीकर पर AI सुनता है"), "check?mode=record"),
+                Triple(Icons.Default.Sms, tr("Tell family", "परिवार को बताएं") to tr("Alert · SMS · WhatsApp", "अलर्ट · SMS · WhatsApp"), "tellfamily"),
+                Triple(Icons.Default.HelpOutline, tr("Are you really calling?", "क्या सच में आप हैं?") to tr("Ask their own phone", "उनके फ़ोन से पूछें"), "family"),
+                Triple(Icons.Default.PanTool, tr("Panic Pause", "पैनिक पॉज़") to tr("Stops rushed payments", "जल्दबाज़ी के पेमेंट रोके"), "settings"),
+            ), nav)
+            LayerTitle(3, tr("After the scam", "ठगी के बाद"), VG.red)
+            Grid(listOf(
                 Triple(Icons.Default.Folder, tr("Evidence & report", "सबूत व रिपोर्ट") to tr("Chakshu · cyber cell", "चक्षु · साइबर सेल"), "evidence"),
                 Triple(Icons.Default.Notifications, tr("Family alerts", "परिवार अलर्ट") to tr("What happened", "क्या हुआ"), "alerts"),
                 Triple(Icons.Default.Science, tr("Future lab", "भविष्य की सुविधाएँ") to tr("Police, telecom, bank API…", "पुलिस, टेलीकॉम, बैंक…"), "future"),
@@ -131,6 +142,18 @@ fun HomeScreen(nav: NavHostController) {
                 dial(ctx, "1930")
             }
         }
+    }
+}
+
+/** Heading of one protection layer: 1 before the call, 2 during it, 3 after a scam. */
+@Composable
+private fun LayerTitle(n: Int, title: String, color: androidx.compose.ui.graphics.Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+        Box(Modifier.size(22.dp).clip(CircleShape).background(color.copy(alpha = 0.25f)), contentAlignment = Alignment.Center) {
+            Text("$n", color = color, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(title, color = color, fontWeight = FontWeight.SemiBold)
     }
 }
 

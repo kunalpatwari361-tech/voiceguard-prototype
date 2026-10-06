@@ -225,6 +225,7 @@ fun SetupScreen(onDone: () -> Unit) {
 private val RUNTIME_PERMS = buildList {
     addAll(listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_PHONE_STATE, Manifest.permission.CALL_PHONE,
         Manifest.permission.ANSWER_PHONE_CALLS, Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG,
+        Manifest.permission.SEND_SMS,
         Manifest.permission.ACCESS_FINE_LOCATION,
         Manifest.permission.ACCESS_COARSE_LOCATION))
     if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
@@ -244,13 +245,15 @@ fun PermissionsPanel() {
     LaunchedEffect(Unit) { refresh() }
     key(tick) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PermRow(tr("Microphone, phone, location, notifications", "माइक, फ़ोन, लोकेशन, सूचनाएं"), RUNTIME_PERMS.all { has(ctx, it) }) {
+            PermRow(tr("Microphone, phone, SMS, location, notifications", "माइक, फ़ोन, SMS, लोकेशन, सूचनाएं"), RUNTIME_PERMS.all { has(ctx, it) }) {
                 perms.launch(RUNTIME_PERMS.toTypedArray())
             }
             PermRow(tr("Call screening (spam warning on real calls)", "कॉल स्क्रीनिंग (असली कॉल पर स्पैम चेतावनी)"),
                 rm.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) { roleLauncher.launch(rm.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING)) }
             PermRow(tr("VoiceGuard Dialer as phone app (optional)", "VoiceGuard डायलर को फ़ोन ऐप बनाएं (वैकल्पिक)"),
                 rm.isRoleHeld(RoleManager.ROLE_DIALER)) { roleLauncher.launch(rm.createRequestRoleIntent(RoleManager.ROLE_DIALER)) }
+            PermRow(tr("Live check during calls: VoiceGuard call listening (Accessibility)", "कॉल में लाइव जाँच: VoiceGuard call listening (Accessibility)"),
+                com.voiceguard.app.service.CallListenService.enabled(ctx)) { com.voiceguard.app.service.CallListenService.openSettings(ctx) }
             PermRow(tr("Panic Pause: usage access", "पैनिक पॉज़: यूसेज एक्सेस"), GuardService.usageAccess(ctx)) {
                 roleLauncher.launch(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             }

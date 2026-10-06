@@ -56,6 +56,8 @@ class CallToolsState(val number: String?, claimedId: String?, val source: String
     var analysis by mutableStateOf<JsonObject?>(null)
     var analyzing by mutableStateOf(false)
     var err by mutableStateOf<String?>(null)
+    /** Why the last check gave no score (e.g. only the phone owner's own voice was heard). */
+    var note by mutableStateOf<String?>(null)
     val gaps = mutableListOf<Double>()
     var audio: ShortArray? = null
 
@@ -74,8 +76,6 @@ class CallToolsState(val number: String?, claimedId: String?, val source: String
     }
 
     var phase by mutableStateOf("")
-    var notifyBusy by mutableStateOf(false)
-    var notifyResult by mutableStateOf<Pair<Boolean, String>?>(null)
 
     /** Quick pass first (voice checks, ~5 s), then the full pass with speech-to-text + scam words. */
     private var rerun = false
@@ -92,12 +92,17 @@ class CallToolsState(val number: String?, claimedId: String?, val source: String
             "really_calling" to really.str("answer"), "voice_test_passed" to challengeResult.bool("passed"),
         )
         phase = tr("AI is checking the voice…", "AI आवाज़ जाँच रहा है…")
+        fun take(r: JsonObject) {
+            val ok = r.bool("ok") != false
+            note = if (ok) null else r.bi("message", "message_hi")
+            if (ok || analysis == null) analysis = r
+        }
         runCatching { Api.upload("/api/analyze", fields + ("skip_asr" to true), wav).asObj() }
-            .onSuccess { if (it.bool("ok") != false || analysis == null) analysis = it }.onFailure { err = it.message }
-        if (withWords) {
+            .onSuccess { it?.let(::take) }.onFailure { err = it.message }
+        if (withWords && analysis?.bool("ok") != false) {
             phase = tr("Listening to what the caller said (scam words)…", "कॉलर की बातें सुन रहे हैं (ठगी शब्द)…")
             runCatching { Api.upload("/api/analyze", fields, wav).asObj() }
-                .onSuccess { analysis = it }.onFailure { err = it.message }
+                .onSuccess { it?.let(::take) }.onFailure { err = it.message }
         }
         analyzing = false
         if (rerun) { rerun = false; analyze() }
@@ -121,7 +126,7 @@ class CallToolsState(val number: String?, claimedId: String?, val source: String
  * [captureAnswer] records (real call) or plays + returns (demo call) the caller's answer to a Voice Test.
  */
 @Composable
-fun CallTools(s: CallToolsState, nav: NavHostController?, captureAnswer: suspend (kind: String) -> ShortArray?) {
+fun CallTools(s: CallToolsState, nav: NavHostController?, showNotify: Boolean = true, captureAnswer: suspend (kind: String) -> ShortArray?) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val members = Sync.others()
@@ -146,22 +151,14 @@ fun CallTools(s: CallToolsState, nav: NavHostController?, captureAnswer: suspend
         }
     }
 
-    // ---- Family Alert (17), on demand during the call
-    Section(tr("Notify my family", "मेरे परिवार को बताएं"), Icons.Default.FamilyRestroom, VG.amber) {
-        Text(tr("Sends an alert to every phone in your family circle right now, with a button to call you.",
-            "आपके परिवार के हर फ़ोन पर अभी अलर्ट जाएगा, आपको कॉल करने के बटन के साथ।"), color = VG.muted, fontSize = 13.sp)
-        if (s.notifyBusy) Busy(tr("Sending…", "भेज रहे हैं…"))
-        else BigButton(tr("Notify family now", "परिवार को अभी बताएं"), Icons.Default.FamilyRestroom, VG.amber) {
-            scope.launch {
-                s.notifyBusy = true
-                s.notifyResult = notifyFamily("${Prefs.name} is on a suspicious call",
-                    "Caller ${s.number ?: "unknown"}" + (s.claimedName?.let { " says they are $it" } ?: "") +
-                        (s.analysis.obj("risk").int("score")?.let { ". Risk $it/100" } ?: "") + ". Call ${Prefs.name} now.",
-                    mapOf("number" to s.number, "victim_phone" to Prefs.phone, "from_name" to Prefs.name))
-                s.notifyBusy = false
-            }
-        }
-        s.notifyResult?.let { (ok, text) -> Banner(text, if (ok) VG.green else VG.amber) }
+    // ---- Family Alert (17), on demand during the call: app alert, SMS or WhatsApp
+    if (showNotify) TellFamilyBar(message = {
+        FamilyMessage.text(ctx, s.number, s.claimedName, s.analysis.obj("risk").int("score"))
+    }) {
+        notifyFamily("${Prefs.name} is on a suspicious call",
+            "Caller ${s.number ?: "unknown"}" + (s.claimedName?.let { " says they are $it" } ?: "") +
+                (s.analysis.obj("risk").int("score")?.let { ". Risk $it/100" } ?: "") + ". Call ${Prefs.name} now.",
+            mapOf("number" to s.number, "victim_phone" to Prefs.phone, "from_name" to Prefs.name))
     }
 
     // ---- Voice Test

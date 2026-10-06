@@ -4,6 +4,7 @@ Number Info (15), Final Risk Score (16), Spam / Block / Community list (24-26)."
 import asyncio
 import datetime as dt
 import json
+import logging
 import time
 
 import numpy as np
@@ -12,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from ..ai import challenge, fingerprints, models, number_info, reply_delay
+from ..ai import challenge, fingerprints, models, number_info, reply_delay, separate
 from ..ai.audio_io import load_audio
 from ..ai.pipeline import _clean, analyze_voice
 from ..auth import current_user, require_family, require_self
@@ -21,6 +22,7 @@ from ..hub import hub
 from .common import age_min, family_ids, iso, push_alert
 
 router = APIRouter(prefix="/api", tags=["checks"], dependencies=[Depends(current_user)])  # login required
+log = logging.getLogger("voiceguard.checks")
 
 
 def _claimed(s: Session, claimed_user_id: str | None):
@@ -75,6 +77,16 @@ async def analyze(file: UploadFile = File(...),
     y = load_audio(await file.read())
     user = me
     claimed, vp, loc = _claimed(s, claimed_user_id)
+    heard_s = len(y) / 16000
+    focus = None
+    if source == "live_call" and me.voiceprint:
+        # The phone's mic hears both people: cut out the owner's own (real) voice, check only the caller.
+        y, focus = await asyncio.to_thread(separate.keep_caller, y, np.array(json.loads(me.voiceprint), dtype=np.float32))
+        if focus["used"] and focus["caller_s"] < 1.0:
+            log.info("analyze %s: %.1fs heard, only the owner's voice", source, heard_s)
+            return {"ok": False, "error": "only_owner", "caller_focus": focus,
+                    "message": "Only your own voice was heard. Keep the call on speaker and let the caller talk.",
+                    "message_hi": "सिर्फ़ आपकी आवाज़ सुनाई दी। कॉल स्पीकर पर रखें और कॉलर को बोलने दें।"}
     nscore, ninfo = _number_score(s, number, user)
     result = await asyncio.to_thread(
         analyze_voice, y,
@@ -85,7 +97,12 @@ async def analyze(file: UploadFile = File(...),
         voice_test=None if voice_test_passed is None else {"passed": voice_test_passed},
         hd_call=hd_call, location=loc)
     if not result.get("ok"):
-        return result
+        log.info("analyze %s: %.1fs heard, %s", source, heard_s, result.get("error"))
+        return result | {"caller_focus": focus}
+    log.info("analyze %s: %.1fs heard%s -> risk %s (%s), AI voice %.2f", source, heard_s,
+             f", owner voice removed {focus['owner_s']}s" if focus and focus.get("used") else "",
+             result["risk"]["score"], result["risk"]["level"], result["ai_voice"]["fake_prob"])
+    result["caller_focus"] = focus
     result["number_info"] = ninfo
     result["claimed"] = {"id": claimed.id, "name": claimed.name, "voiceprint_enrolled": vp is not None,
                          "location": loc} if claimed else None

@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">VoiceGuard</string>
+    <string name="call_listen_label">VoiceGuard call listening</string>
+    <string name="call_listen_desc">Lets VoiceGuard hear the caller (call on speaker) so its AI can check for a cloned voice during phone calls. Android mutes the microphone for normal apps during a call; accessibility apps are the exception. VoiceGuard does not read your screen or other apps.</string>
 </resources>
