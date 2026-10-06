@@ -198,7 +198,12 @@ The home screen groups the features by *when* they help:
   If the check still hears silence, the card says so – then use *Are you really calling?* / HD call, which need no
   call audio. (If Android shows "Restricted setting": *App info → ⋮ → Allow restricted settings*.)
 
-**Tell family during a call.** Three buttons under the call controls: *App alert* (push to every family phone),
+**The call screen** looks like a normal phone's: caller on top, round buttons, red End. Row 1 *Mute · Speaker ·
+Hold*, row 2 *AI check · Family · Keypad*, row 3 *Voice test · Panic · More*. The AI result appears as a coloured
+pill under the caller's name ("AI risk 87 · likely AI / scam"); *Family* puts **Are you really calling?** and
+**Tell family** together in one panel.
+
+**Tell family during a call.** Three buttons in the *Family* panel: *App alert* (push to every family phone),
 *SMS* (sent straight from your phone on the call's SIM – works even if they have no internet; shows you the text
 first) and *WhatsApp* (opens their chat with the message typed in – WhatsApp only lets you press Send yourself).
 The message contains the caller's number, who they claim to be, the AI risk score and a map link to where you are.

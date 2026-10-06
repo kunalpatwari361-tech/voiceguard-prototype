@@ -76,6 +76,8 @@ class MainActivity : ComponentActivity() {
                 pending.value = "hd/${i.getStringExtra("call_id")}?incoming=true&peer=${Uri.encode(i.getStringExtra("from"))}"
             i.getStringExtra("nav") == "number" -> pending.value = "number/" + Uri.encode(i.getStringExtra("number"))
             i.getStringExtra("nav") == "alerts" -> pending.value = "alerts"
+            i.getStringExtra("nav") == "hdcall" && i.getStringExtra("peer_id") != null ->
+                pending.value = "hdcall/" + Uri.encode(i.getStringExtra("peer_id"))
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.voiceguard.app.ui
 
+import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -123,23 +124,36 @@ class CallToolsState(val number: String?, claimedId: String?, val source: String
 }
 
 /**
+ * Every call tool in one scrolling list (demo calls). The real call screen shows the same pieces behind icons.
  * [captureAnswer] records (real call) or plays + returns (demo call) the caller's answer to a Voice Test.
  */
 @Composable
 fun CallTools(s: CallToolsState, nav: NavHostController?, showNotify: Boolean = true, captureAnswer: suspend (kind: String) -> ShortArray?) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
+    ReallyCallingSection(s)
+    if (showNotify) TellFamilySection(s)
+    VoiceTestSection(s, captureAnswer)
+    HdCallSection(s, nav)
+    RiskSection(s, nav)
+    PanicButton(s)
+}
+
+/** Who the caller claims to be (family member) – used by Are You Really Calling?, voice print and HD call. */
+@Composable
+fun ClaimedPicker(s: CallToolsState) {
     val members = Sync.others()
-
-    Section(tr("Caller claims to be…", "कॉलर दावा करता है कि वह है…"), Icons.Default.HelpCenter) {
-        if (members.isEmpty()) Text(tr("Add family in Family Circle first.", "पहले परिवार सर्कल में सदस्य जोड़ें।"), color = VG.muted)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(members) { m -> FilterChip(s.claimedId == m.str("id"), { s.claimedId = m.str("id") }, label = { Text(m.str("name").orEmpty()) }) }
-        }
+    Text(tr("Caller claims to be…", "कॉलर दावा करता है कि वह है…"), color = VG.muted, fontSize = 13.sp)
+    if (members.isEmpty()) Text(tr("Add family in Family Circle first.", "पहले परिवार सर्कल में सदस्य जोड़ें।"), color = VG.muted)
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(members) { m -> FilterChip(s.claimedId == m.str("id"), { s.claimedId = m.str("id") }, label = { Text(m.str("name").orEmpty()) }) }
     }
+}
 
-    // ---- Are You Really Calling?
+/** Are You Really Calling? (8): asks the claimed person's own phone. */
+@Composable
+fun ReallyCallingSection(s: CallToolsState) {
+    val scope = rememberCoroutineScope()
     Section(tr("Are You Really Calling?", "क्या सच में आप कॉल कर रहे हैं?"), Icons.Default.HelpCenter, VG.green) {
+        ClaimedPicker(s)
         Text(tr("Asks ${s.claimedName ?: "them"}'s own phone. No audio needed.", "${s.claimedName ?: "उनके"} फ़ोन से सीधे पूछता है।"),
             color = VG.muted, fontSize = 13.sp)
         if (s.reallyBusy) Busy(tr("Asking ${s.claimedName}'s phone…", "${s.claimedName} के फ़ोन से पूछ रहे हैं…"))
@@ -150,9 +164,13 @@ fun CallTools(s: CallToolsState, nav: NavHostController?, showNotify: Boolean = 
                 r.obj("auto")?.bi("en", "hi"))
         }
     }
+}
 
-    // ---- Family Alert (17), on demand during the call: app alert, SMS or WhatsApp
-    if (showNotify) TellFamilyBar(message = {
+/** Family Alert (17) on demand during the call: app alert, SMS or WhatsApp. */
+@Composable
+fun TellFamilySection(s: CallToolsState) {
+    val ctx = LocalContext.current
+    TellFamilyBar(message = {
         FamilyMessage.text(ctx, s.number, s.claimedName, s.analysis.obj("risk").int("score"))
     }) {
         notifyFamily("${Prefs.name} is on a suspicious call",
@@ -160,9 +178,15 @@ fun CallTools(s: CallToolsState, nav: NavHostController?, showNotify: Boolean = 
                 (s.analysis.obj("risk").int("score")?.let { ". Risk $it/100" } ?: "") + ". Call ${Prefs.name} now.",
             mapOf("number" to s.number, "victim_phone" to Prefs.phone, "from_name" to Prefs.name))
     }
+}
 
-    // ---- Voice Test
+/** Voice Test / Voice CAPTCHA (12). */
+@Composable
+fun VoiceTestSection(s: CallToolsState, captureAnswer: suspend (kind: String) -> ShortArray?) {
+    val scope = rememberCoroutineScope()
     Section(tr("Voice Test (Voice CAPTCHA)", "वॉइस टेस्ट"), Icons.Default.Quiz, VG.violet) {
+        Text(tr("Ask the caller to do something an AI voice finds hard (laugh, sing, answer a family question) – the AI checks the answer.",
+            "कॉलर से कुछ ऐसा करवाएं जो AI आवाज़ के लिए मुश्किल हो – AI जवाब जाँचेगा।"), color = VG.muted, fontSize = 13.sp)
         val c = s.challenge
         if (c == null) SmallButton(tr("Give the caller a test", "कॉलर को टेस्ट दें")) { scope.launch { s.newChallenge() } }
         else {
@@ -186,17 +210,27 @@ fun CallTools(s: CallToolsState, nav: NavHostController?, showNotify: Boolean = 
             }
         }
     }
+}
 
-    // ---- HD call
+/** VoiceGuard HD Call (11). Without [nav] (real call screen) it opens the app's HD call screen. */
+@Composable
+fun HdCallSection(s: CallToolsState, nav: NavHostController?) {
+    val ctx = LocalContext.current
     Section(tr("VoiceGuard HD Call", "VoiceGuard HD कॉल"), Icons.Default.HdrOn, VG.blue) {
         Text(tr("Calls ${s.claimedName ?: "them"}'s registered phone over the internet in HD. Only the real person can answer. If the caller refuses to switch, that is a warning sign.",
             "${s.claimedName ?: "उनके"} रजिस्टर्ड फ़ोन पर HD कॉल करता है। असली व्यक्ति ही जवाब दे सकता है।"), color = VG.muted, fontSize = 13.sp)
-        SmallButton(tr("Verify with HD call", "HD कॉल से पुष्टि करें"), Icons.Default.HdrOn, enabled = s.claimedId != null && nav != null) {
-            nav?.navigate("hdcall/${s.claimedId}")
+        SmallButton(tr("Verify with HD call", "HD कॉल से पुष्टि करें"), Icons.Default.HdrOn, enabled = s.claimedId != null) {
+            if (nav != null) nav.navigate("hdcall/${s.claimedId}")
+            else ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra("nav", "hdcall").putExtra("peer_id", s.claimedId))
         }
     }
+}
 
-    // ---- risk
+/** Final Risk Score (16) with the reasons. */
+@Composable
+fun RiskSection(s: CallToolsState, nav: NavHostController?) {
+    val scope = rememberCoroutineScope()
     Section(tr("Final Risk Score", "अंतिम जोखिम स्कोर"), Icons.Default.ManageSearch) {
         if (s.analyzing) Busy(s.phase)
         else SmallButton(tr("Check voice now", "अभी आवाज़ जाँचें"), enabled = s.audio != null) { scope.launch { s.analyze() } }
@@ -208,19 +242,25 @@ fun CallTools(s: CallToolsState, nav: NavHostController?, showNotify: Boolean = 
         }
         ErrorBox(s.err)
     }
+}
 
-    // ---- panic
-    BigButton(tr("I feel pressured – PANIC", "मुझ पर दबाव है – पैनिक"), Icons.Default.PanTool, VG.red) {
-        Prefs.markRisky(s.number, (s.analysis.obj("risk").int("score") ?: 80), s.claimedId)
-        scope.launch {
-            runCatching {
-                Api.post("/api/alerts", json("from_user_id" to Prefs.userId, "kind" to "panic",
-                    "title" to "${Prefs.name} pressed PANIC during a call",
-                    "body" to "Caller ${s.number ?: "unknown"}" + (s.claimedName?.let { " claims to be $it" } ?: "") + ". Call ${Prefs.name} now!"))
-            }
+/** Panic (19): alert the family and open Panic Pause. */
+fun panic(ctx: Context, s: CallToolsState) {
+    Prefs.markRisky(s.number, (s.analysis.obj("risk").int("score") ?: 80), s.claimedId)
+    kotlinx.coroutines.MainScope().launch {
+        runCatching {
+            Api.post("/api/alerts", json("from_user_id" to Prefs.userId, "kind" to "panic",
+                "title" to "${Prefs.name} pressed PANIC during a call",
+                "body" to "Caller ${s.number ?: "unknown"}" + (s.claimedName?.let { " claims to be $it" } ?: "") + ". Call ${Prefs.name} now!"))
         }
-        ctx.startActivity(Intent(ctx, PanicPauseActivity::class.java).putExtra("app", "panic button"))
     }
+    ctx.startActivity(Intent(ctx, PanicPauseActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("app", "panic button"))
+}
+
+@Composable
+fun PanicButton(s: CallToolsState) {
+    val ctx = LocalContext.current
+    BigButton(tr("I feel pressured – PANIC", "मुझ पर दबाव है – पैनिक"), Icons.Default.PanTool, VG.red) { panic(ctx, s) }
 }
 
 /**
