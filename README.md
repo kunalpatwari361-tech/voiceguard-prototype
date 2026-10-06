@@ -81,6 +81,19 @@ acts as "Rahul's phone" (online, not on a call, voice print saved, receives aler
 **Improve the AI-voice detector:** `retrain_detector.bat` continues training with the extra Indian-language data
 (Hindi, Marathi, Tamil, Telugu, Punjabi). It resumes where it stopped; restart the server afterwards.
 
+## Troubleshooting
+
+**`adb : The term 'adb' is not recognized…`** – Windows doesn't know where `adb.exe` is.
+- The `.bat` scripts don't need it on PATH: they search PATH, `ANDROID_HOME`, `ANDROID_SDK_ROOT`,
+  Android Studio's `%LOCALAPPDATA%\Android\Sdk` and `K:\vgtools\android-sdk` (`tools\find_adb.bat`).
+- To type `adb` yourself, double-click `add_adb_to_path.bat`, then **open a new terminal** (terminals only read
+  PATH when they start; restart VS Code / the Claude app if the terminal lives inside it).
+- Quick fix for the terminal you already have open (PowerShell):
+  `$env:Path += ";K:\vgtools\android-sdk\platform-tools"`
+
+**Phone not listed by `adb devices`** – enable *Developer options → USB debugging*, use a data USB cable, and tap
+*Allow* on the phone. Some brands need their USB driver (Samsung: "Samsung Android USB Driver").
+
 ## 3-minute demo script
 
 1. **Papa** → *Demo scam call* → pretends to be **Rahul** → *Start*. The number already shows community scam reports (Number Info).
