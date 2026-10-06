@@ -72,7 +72,7 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 
 @Composable
-fun FamilyScreen(nav: NavHostController, back: () -> Unit) {
+fun FamilyScreen(nav: NavHostController, back: (() -> Unit)?) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var fam by remember { mutableStateOf(Sync.cachedFamily()) }

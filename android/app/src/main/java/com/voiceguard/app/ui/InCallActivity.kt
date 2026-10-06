@@ -79,6 +79,8 @@ import com.voiceguard.app.data.num
 import com.voiceguard.app.data.obj
 import com.voiceguard.app.data.str
 import com.voiceguard.app.service.CallWatch
+import com.voiceguard.app.service.CallerSms
+import com.voiceguard.app.service.SmsWatch
 import com.voiceguard.app.telecom.CallManager
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
@@ -134,6 +136,8 @@ class InCallActivity : ComponentActivity() {
         var ended by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         val speakerOn = { if (!CallManager.speaker.value) CallManager.toggleSpeaker() }
+        val callerSms by SmsWatch.forCall.collectAsState()
+        val callStart = remember(number) { System.currentTimeMillis() - 60_000 }
         val startAi = { live.start(ctx, scope, speakerOn) }
 
         LaunchedEffect(number) {
@@ -201,6 +205,12 @@ class InCallActivity : ComponentActivity() {
                     contactName == null -> Chip(tr("Not in your contacts", "आपके संपर्कों में नहीं"), VG.amber)
                 }
                 if (!ended && state != Call.STATE_RINGING) AiPill(live, tools) { sheet = "ai" }
+                callerSms?.takeIf { it.at >= callStart }?.let { m ->
+                    CallerSmsCard(m) {
+                        startActivity(android.content.Intent(ctx, MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            .putExtra("nav", "sms").putExtra("address", m.from))
+                    }
+                }
                 Spacer(Modifier.height(16.dp))
 
                 when {
@@ -320,6 +330,18 @@ class InCallActivity : ComponentActivity() {
         SmallButton(tr("Close", "बंद करें")) { finish() }
     }
 
+    override fun onResume() {
+        super.onResume()
+        com.voiceguard.app.telecom.CallNotifier.uiVisible = true
+        com.voiceguard.app.telecom.CallNotifier.update(this)
+    }
+
+    override fun onPause() {
+        com.voiceguard.app.telecom.CallNotifier.uiVisible = false
+        com.voiceguard.app.telecom.CallNotifier.update(this)
+        super.onPause()
+    }
+
     override fun onDestroy() {
         runCatching { if (proximity?.isHeld == true) proximity?.release() }
         super.onDestroy()
@@ -347,6 +369,23 @@ private fun AiPill(live: LiveCallMonitor, tools: CallToolsState, onClick: () -> 
         Box(Modifier.size(10.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(8.dp))
         Text(text, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** "The caller just sent you an SMS" / "You got a code during this call – don't read it out". */
+@Composable
+private fun CallerSmsCard(m: CallerSms, onClick: () -> Unit) {
+    val danger = m.verdict.isOtp || m.verdict.level == "danger"
+    val color = if (danger) VG.red else if (m.verdict.level == "caution") VG.amber else VG.blue
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(color.copy(alpha = 0.22f)).clickable(onClick = onClick)
+        .padding(12.dp)) {
+        Text(when {
+            m.verdict.isOtp -> tr("You got a code during this call – NEVER read it out", "इस कॉल के दौरान कोड आया – कभी न बताएं")
+            m.fromCaller -> tr("The caller sent you an SMS", "कॉलर ने SMS भेजा")
+            else -> tr("New SMS", "नया SMS")
+        }, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Text(m.body.replace('\n', ' ').take(140), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, maxLines = 2)
+        if (m.verdict.reasons.isNotEmpty()) Text("⚠ " + m.verdict.reasons.joinToString(" · "), color = color, fontSize = 12.sp)
     }
 }
 

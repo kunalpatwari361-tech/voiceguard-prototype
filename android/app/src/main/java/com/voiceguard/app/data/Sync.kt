@@ -44,8 +44,10 @@ object Numbers {
         return n
     }
 
-    fun pretty(n: String?): String {
-        if (n.isNullOrBlank()) return "Unknown number"
-        return if (n.startsWith("+91") && n.length == 13) "+91 ${n.substring(3, 8)} ${n.substring(8)}" else n
+    fun pretty(raw: String?): String {
+        if (raw.isNullOrBlank()) return "Unknown number"
+        if (raw.any { it.isLetter() }) return raw                  // sender names like HDFCBK
+        val n = normalize(raw)
+        return if (n.startsWith("+91") && n.length == 13) "+91 ${n.substring(3, 8)} ${n.substring(8)}" else raw
     }
 }

@@ -154,10 +154,13 @@ fun ReallyCallingSection(s: CallToolsState) {
     val scope = rememberCoroutineScope()
     Section(tr("Are You Really Calling?", "क्या सच में आप कॉल कर रहे हैं?"), Icons.Default.HelpCenter, VG.green) {
         ClaimedPicker(s)
-        Text(tr("Asks ${s.claimedName ?: "them"}'s own phone. No audio needed.", "${s.claimedName ?: "उनके"} फ़ोन से सीधे पूछता है।"),
+        val who = s.claimedName
+        Text(if (who != null) tr("Asks $who's own phone. No audio needed.", "$who के फ़ोन से सीधे पूछता है।")
+             else tr("Pick who the caller claims to be – VoiceGuard asks that person's own phone.", "चुनें कि कॉलर कौन होने का दावा कर रहा है – VoiceGuard उसी के फ़ोन से पूछेगा।"),
             color = VG.muted, fontSize = 13.sp)
-        if (s.reallyBusy) Busy(tr("Asking ${s.claimedName}'s phone…", "${s.claimedName} के फ़ोन से पूछ रहे हैं…"))
-        else BigButton(tr("Ask ${s.claimedName ?: ""} now", "${s.claimedName ?: ""} से अभी पूछें"), color = VG.green) { scope.launch { s.askReallyCalling() } }
+        if (s.reallyBusy) Busy(tr("Asking $who's phone…", "$who के फ़ोन से पूछ रहे हैं…"))
+        else BigButton(if (who != null) tr("Ask $who now", "$who से अभी पूछें") else tr("Ask now", "अभी पूछें"), color = VG.green,
+            enabled = who != null) { scope.launch { s.askReallyCalling() } }
         s.really?.let { r ->
             val ans = r.str("answer")
             Banner(r.bi("message", "message_hi").orEmpty(), when (ans) { "yes" -> VG.green; "no" -> VG.red; else -> VG.amber },

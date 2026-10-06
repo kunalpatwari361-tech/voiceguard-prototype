@@ -101,6 +101,15 @@ object Notify {
         nm(ctx).notify(number.hashCode(), n)
     }
 
+    /** SMS check: scam SMS, a message from the caller, or an OTP that arrived during a call. Tap = the conversation. */
+    fun smsWarning(ctx: Context, from: String, title: String, text: String, urgent: Boolean = false) {
+        val n = Notification.Builder(ctx, if (urgent) CH_URGENT else CH_SPAM).setSmallIcon(R.drawable.ic_shield)
+            .setContentTitle(title).setContentText(text).setStyle(Notification.BigTextStyle().bigText(text))
+            .setCategory(if (urgent) Notification.CATEGORY_ALARM else Notification.CATEGORY_MESSAGE).setAutoCancel(true)
+            .setContentIntent(open(ctx, "sms", mapOf("address" to from), ("sms" + from).hashCode())).build()
+        nm(ctx).notify(("sms" + from).hashCode(), n)
+    }
+
     /** Call-Back Alert (feature 18): after a suspicious call, call the real person on their saved number. */
     fun callBack(ctx: Context, name: String, phone: String) {
         val n = Notification.Builder(ctx, CH_ALERTS).setSmallIcon(R.drawable.ic_shield)

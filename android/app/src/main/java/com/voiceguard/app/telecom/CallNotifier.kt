@@ -23,6 +23,8 @@ import com.voiceguard.app.ui.InCallActivity
  */
 object CallNotifier {
     const val ID = 20
+    /** True while the VoiceGuard call screen is in front: then the ringing notification must not pop up over it. */
+    @Volatile var uiVisible = false
     private const val CH_RING = "call_ringing"      // high importance + full screen; Telecom plays the ringtone
     private const val CH_ONGOING = "call_ongoing"   // silent, stays in the status bar during the call
 
@@ -53,7 +55,7 @@ object CallNotifier {
         val name = who(ctx, number)
         val scam = number in Prefs.scamNumbers
         val ringing = state == Call.STATE_RINGING
-        val b = Notification.Builder(ctx, if (ringing) CH_RING else CH_ONGOING)
+        val b = Notification.Builder(ctx, if (ringing && !uiVisible) CH_RING else CH_ONGOING)
             .setSmallIcon(R.drawable.ic_shield)
             .setContentTitle(if (scam) "⚠ $name · reported scam" else name)
             .setCategory(Notification.CATEGORY_CALL)
@@ -64,7 +66,8 @@ object CallNotifier {
         when (state) {
             Call.STATE_RINGING -> {
                 b.setContentText("Incoming call · protected by VoiceGuard")
-                    .setFullScreenIntent(openUi(ctx, req = 1), true)
+                if (!uiVisible) b.setFullScreenIntent(openUi(ctx, req = 1), true)
+                b
                     .addAction(Notification.Action.Builder(null, "Decline", action(ctx, CallActionReceiver.HANGUP, 11)).build())
                     .addAction(Notification.Action.Builder(null, "Answer", openUi(ctx, "answer", 12)).build())
             }

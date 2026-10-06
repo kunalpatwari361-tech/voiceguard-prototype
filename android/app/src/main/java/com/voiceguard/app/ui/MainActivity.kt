@@ -76,6 +76,8 @@ class MainActivity : ComponentActivity() {
                 pending.value = "hd/${i.getStringExtra("call_id")}?incoming=true&peer=${Uri.encode(i.getStringExtra("from"))}"
             i.getStringExtra("nav") == "number" -> pending.value = "number/" + Uri.encode(i.getStringExtra("number"))
             i.getStringExtra("nav") == "alerts" -> pending.value = "alerts"
+            i.getStringExtra("nav") == "sms" && i.getStringExtra("address") != null ->
+                pending.value = "sms/" + Uri.encode(i.getStringExtra("address"))
             i.getStringExtra("nav") == "hdcall" && i.getStringExtra("peer_id") != null ->
                 pending.value = "hdcall/" + Uri.encode(i.getStringExtra("peer_id"))
         }
@@ -87,7 +89,8 @@ fun AppNav(nav: NavHostController, start: String) {
     val back: () -> Unit = { nav.popBackStack() }
     NavHost(nav, startDestination = start) {
         composable("setup") { SetupScreen(onDone = { nav.navigate("home") { popUpTo("setup") { inclusive = true } } }) }
-        composable("home") { HomeScreen(nav) }
+        composable("home") { MainTabs(nav) }
+        composable("sms/{address}") { ConversationScreen(it.arguments?.getString("address").orEmpty(), nav, back) }
         composable("dialer?number={number}", listOf(navArgument("number") { defaultValue = "" })) {
             DialerScreen(it.arguments?.getString("number").orEmpty(), nav, back)
         }

@@ -86,7 +86,6 @@ fun DialerScreen(initial: String, nav: NavHostController, back: () -> Unit) {
     var contacts by remember { mutableStateOf<List<Contact>>(emptyList()) }
     var log by remember { mutableStateOf<List<CallEntry>>(emptyList()) }
     var permTick by remember { mutableIntStateOf(0) }
-    var simFor by remember { mutableStateOf<String?>(null) }
     val isDialer = remember { ctx.getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_DIALER) }
     val perms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permTick++ }
     val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
@@ -96,38 +95,8 @@ fun DialerScreen(initial: String, nav: NavHostController, back: () -> Unit) {
         log = Contacts.callLog(ctx)
     }
 
-    fun placeWith(n: String, sim: PhoneAccountHandle?) {
-        val extras = Bundle().apply { if (sim != null) putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, sim) }
-        runCatching { ctx.getSystemService(TelecomManager::class.java).placeCall(Uri.fromParts("tel", n, null), extras) }
-            .onFailure { dial(ctx, n) }
-    }
-
-    /** Real call. As the default Phone app we place it ourselves; dual-SIM phones get a SIM choice first. */
-    fun place(n: String) {
-        if (n.isBlank()) return
-        if (!isDialer) { dial(ctx, n); return }
-        val sims = Sims.list(ctx)
-        val def = Sims.default(ctx)
-        if (def == null && sims.size > 1) simFor = n else placeWith(n, def ?: sims.firstOrNull()?.first)
-    }
-
-    simFor?.let { n ->
-        AlertDialog(
-            onDismissRequest = { simFor = null },
-            title = { Text(tr("Call with which SIM?", "किस SIM से कॉल करें?")) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(Numbers.pretty(n), color = VG.muted)
-                    Sims.list(ctx).forEach { (h, label) ->
-                        BigButton(label, Icons.Default.SimCard, VG.green) { simFor = null; placeWith(n, h) }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = { SmallButton(tr("Cancel", "रद्द करें")) { simFor = null } },
-            containerColor = VG.surface,
-        )
-    }
+    val placer = rememberPlacer()
+    fun place(n: String) = placer(n)
 
     val nameOf = remember(contacts) { contacts.associate { it.normalized to it.name } }
 
@@ -254,7 +223,7 @@ private fun RecentsTab(log: List<CallEntry>, nameOf: Map<String, String>, nav: N
 }
 
 @Composable
-private fun ContactsTab(contacts: List<Contact>, nav: NavHostController, place: (String) -> Unit) {
+fun ContactsTab(contacts: List<Contact>, nav: NavHostController, place: (String) -> Unit) {
     var q by remember { mutableStateOf("") }
     val fam = Sync.others()
     val shown = remember(q, contacts) {
@@ -284,7 +253,7 @@ private fun ContactsTab(contacts: List<Contact>, nav: NavHostController, place: 
 }
 
 @Composable
-private fun PersonRow(name: String, sub: String, label: Pair<String, Color>?, onCall: () -> Unit, onClick: () -> Unit) {
+fun PersonRow(name: String, sub: String, label: Pair<String, Color>?, onCall: () -> Unit, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(VG.surface).clickable(onClick = onClick)
         .padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(38.dp).clip(CircleShape).background(VG.surface2), contentAlignment = Alignment.Center) {

@@ -44,7 +44,7 @@ Stops AI voice-clone scam calls ("Papa, I had an accident, send money"). Android
 | Async & data | kotlinx.coroutines 1.9.0 · kotlinx.serialization-json 1.7.3 |
 | Networking | OkHttp 4.12.0 – REST calls, the always-on WebSocket family link, and HD-call audio streaming |
 | Phone calls (Telecom) | `RoleManager` (default Phone app + call-screening roles) · `InCallService` (own call screen, SIM picker, DTMF keypad, hold, mute, speaker) · `CallScreeningService` (spam warning, block list) · `TelecomManager.placeCall` with the chosen SIM (`PhoneAccountHandle`) |
-| Phone data | `ContactsContract` (contacts + caller-ID lookup) · `CallLog` (Recents) · `TelephonyCallback` (call state for "Are you really calling?") |
+| Phone data | `ContactsContract` (contacts + caller-ID lookup) · `CallLog` (Calls tab) · `TelephonyCallback` (call state for "Are you really calling?") · `Telephony.Sms` provider + `SMS_RECEIVED` receiver (Messages tab, scam-SMS and OTP-during-call warnings – read on the phone only) · `SmsManager` (replies, tell family) |
 | Audio | `AudioRecord` / `AudioTrack` (16 kHz PCM, `VOICE_COMMUNICATION` + echo canceller) · `MediaExtractor` + `MediaCodec` (decodes WhatsApp Opus, m4a, mp3) · `MediaPlayer` (demo calls) |
 | Notifications & overlays | Call notification with Answer / Decline / Hang up / Speaker / Mute actions · full-screen alerts · `WindowManager` overlay (Truecaller-style caller-ID card) |
 | Push (app closed) | Firebase Cloud Messaging – `firebase-messaging` 25.1.3; Firebase is set up at run time from settings the server hands out, so the APK needs no `google-services.json` |
@@ -87,7 +87,7 @@ Git + GitHub (private repo) · GitHub CLI 2.102 · Android platform-tools (adb) 
 
 | Feature | Model / method |
 |---|---|
-| AI Voice Detector (3) | **VoiceGuard detector** – frozen Microsoft WavLM-Base-Plus layers 2–6 (mean + std pooling) + logistic head, *trained by us on clean, phone-line and WhatsApp-Opus audio* (`backend/training/`, weights `app/ai/weights/vg_detector.npz`, 93 KB) |
+| AI Voice Detector (3) | **VoiceGuard detector** – frozen Microsoft WavLM-Base-Plus layers 2–6 (mean + std pooling) + logistic head, *trained by us on clean, phone-line and WhatsApp-Opus audio in Hindi, English, Marathi, Tamil, Telugu and Punjabi* (v3) (`backend/training/`, weights `app/ai/weights/vg_detector.npz`, 93 KB) |
 | Voice Print Match (10) | Microsoft `wavlm-base-plus-sv` x-vectors (cosine ≥ 0.86 = same speaker); the detector reuses the same network, so no extra memory |
 | Scam Words (14), Voice Note text, Voice Test | OpenAI `whisper-small` (Hindi + English) + Hindi/Hinglish/English rule engine (tolerant of Whisper's spelling) |
 | Optional deeper scam-talk check | Claude (`claude-opus-5-5`) – only if `ANTHROPIC_API_KEY` is set in `backend/.env` |
@@ -111,11 +111,15 @@ Models download automatically on first run (~3 GB, cached in `K:\vgtools\hf` whe
 | mo-thecreator/Deepfake-audio-detection | 0.61 | 0.58 | – |
 | garystafford/wav2vec2-deepfake-voice-detector | 0.65 | 0.61 | – |
 | Our fingerprint rules alone | 0.97 | 0.43 | – |
-| **VoiceGuard detector** (held-out sentences/speakers) | **0.998** | **0.995** | **0.994** |
+| **VoiceGuard detector v3** (held-out sentences/speakers) | **0.9996** | **0.998** | **0.999** |
 
-VoiceGuard detector accuracy on the held-out set: 97% clean, 97% phone line, 96% WhatsApp Opus, 95% phone + Opus
-(1,431 clips; details in `app/ai/weights/vg_detector_report.json`). It caught every demo AI voice. Known gap: false
-alarms on languages it has not seen (e.g. Spanish) – the extra Indian-language data in `retrain_detector.bat` targets this.
+VoiceGuard detector v3 accuracy on the held-out set: 99% clean, 98% phone line, 96% low-bitrate + packet loss,
+99% WhatsApp Opus, 96% phone + Opus (2,551 clips; `app/ai/weights/vg_detector_report.json`). Real voices recognised
+as real, per language: English 99%, Hindi 95%, Marathi 99%, Tamil 99%, Telugu 99%, Punjabi 97% (v2, which had no
+Marathi/Tamil/Telugu/Punjabi training data: Punjabi 83%). It still catches all 66 unseen AI test clips (demo voices,
+SAPI) on clean, phone-line and WhatsApp audio. Known gap: one Spanish clip and one old Hindi recording are still
+scored as AI (lower than v2) – the final risk score also needs other signals before it says DANGER.
+Previous model: `vg_detector_v2_backup.npz`.
 
 Off-the-shelf detectors don't transfer, and phone lines destroy clean-audio clues – exactly pitch ideas #1 and #2.
 
@@ -177,6 +181,23 @@ Every account is created by **verifying the phone number with a one-time code**;
 - **Test numbers**: `VG_OTP_TEST_NUMBERS=+919876500002:246810` – fixed codes, no SMS (for judges / `sim_second_phone.bat`).
 
 Partner APIs (bank `/api/v1/enterprise/*`, telecom `/api/v1/telecom/flag`) use their own API keys instead.
+
+## Opening the app: a phone app with VoiceGuard built in
+
+VoiceGuard opens like a normal dialer (Truecaller-style), with five tabs:
+
+| Tab | What it shows |
+|---|---|
+| **Calls** | Search bar with ⋮ menu (starred / outgoing / incoming / missed / blocked calls, settings), protection status card, *Frequently called*, call history with direction, time, contact names, *Scam* / *Blocked* tags, the blue dial-pad button |
+| **Messages** | The phone's SMS, grouped by sender, with *All · People · Suspicious* filters and unread counts. Each message is checked **on the phone** (nothing uploaded): KYC/account-block threats, links, prize/job bait, "bank" texts from personal numbers, requests to share an OTP, reported numbers. Open a conversation to see the warning under each risky message, how often that number called you, reply by SMS, call or report it |
+| **Contacts** | Family first, then the phone's contacts |
+| **Family** | Family Circle (verify, location, HD call) |
+| **Protect** | The three protection layers and all VoiceGuard tools |
+
+**Messages from the caller.** If the person you are talking to sends you an SMS, it appears on the call screen. If
+**any code / OTP arrives during a call**, VoiceGuard shows a red card and an urgent notification: *"NEVER share this
+OTP with the caller"* – the classic "read me the code I just sent" scam. A scam SMS outside a call gives a
+*"⚠ Scam SMS"* notification. VoiceGuard does not replace your SMS app; it only reads (needs the SMS permission).
 
 ## Three protection layers
 

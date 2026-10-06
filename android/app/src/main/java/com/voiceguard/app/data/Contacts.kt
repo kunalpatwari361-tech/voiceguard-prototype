@@ -47,12 +47,15 @@ object Contacts {
     /** Caller ID: name saved in the phone for this number, if any. */
     fun nameFor(ctx: Context, number: String?): String? {
         if (number.isNullOrBlank() || !canReadContacts(ctx)) return null
-        return runCatching {
-            val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
+        fun look(n: String) = runCatching {
+            val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(n))
             ctx.contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)?.use {
                 if (it.moveToFirst()) it.getString(0) else null
             }
         }.getOrNull()
+        // "+91 98111 22233" vs a contact saved as "98111 22233": Android only matches these when the phone's region is India
+        val n = Numbers.normalize(number)
+        return look(number) ?: n.takeIf { it.startsWith("+91") && it.length == 13 }?.let { look(it.substring(3)) }
     }
 
     suspend fun callLog(ctx: Context, limit: Int = 150): List<CallEntry> = withContext(Dispatchers.IO) {
