@@ -38,6 +38,14 @@ def status() -> dict:
     return {k: True for k in _cache} | {"claude": bool(config.ANTHROPIC_API_KEY)}
 
 
+_warming = threading.Event()
+
+
+def starting_up() -> bool:
+    """True while the start-up warm-up is still loading the voice models."""
+    return _warming.is_set() and "speaker" not in _cache
+
+
 # ------------------------------------------------------------------ AI voice detector
 class DeepfakeDetector:
     FAKE_NAMES = ("fake", "spoof", "deepfake", "ai", "synthetic", "bonafide_no")
@@ -193,6 +201,7 @@ def asr() -> Transcriber:
 def warmup():
     """Load everything once at startup so the first phone request is fast."""
     silence = np.random.default_rng(0).normal(0, 0.01, 16000 * 2).astype(np.float32)
+    _warming.set()
     for name, fn in (("deepfake", lambda: deepfake().predict(silence)),
                      ("speaker", lambda: speaker().embed(silence)),
                      ("asr", lambda: asr().transcribe(silence, language="en"))):
@@ -200,3 +209,5 @@ def warmup():
             fn()
         except Exception:  # keep the server up even if one model is missing
             log.exception("warmup failed for %s", name)
+    _warming.clear()
+    log.info("AI models ready")

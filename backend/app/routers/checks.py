@@ -74,6 +74,11 @@ async def analyze(file: UploadFile = File(...),
     require_self(me, user_id)
     if claimed_user_id:
         require_family(me, s.get(User, claimed_user_id))
+    if models.starting_up():
+        # answer at once instead of making the phone wait for the models to load
+        return {"ok": False, "error": "warming_up",
+                "message": "The AI is still starting on the laptop (a few seconds after the server starts). Checking again shortly…",
+                "message_hi": "लैपटॉप पर AI अभी शुरू हो रहा है (सर्वर चालू होने के कुछ सेकंड बाद)। थोड़ी देर में फिर जाँचेंगे…"}
     y = load_audio(await file.read())
     user = me
     claimed, vp, loc = _claimed(s, claimed_user_id)

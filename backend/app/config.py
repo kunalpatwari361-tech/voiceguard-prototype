@@ -26,6 +26,18 @@ DEEPFAKE_MODEL = os.getenv("VG_DEEPFAKE_MODEL", "voiceguard")
 SPEAKER_MODEL = os.getenv("VG_SPEAKER_MODEL", "microsoft/wavlm-base-plus-sv")
 ASR_MODEL = os.getenv("VG_ASR_MODEL", "openai/whisper-small")
 
+
+def _downloaded(repo: str) -> bool:
+    home = Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface")
+    return any((home / "hub" / ("models--" + repo.replace("/", "--"))).glob("snapshots/*/config.json"))
+
+
+# Models already on this laptop: load them without asking the internet. On a slow connection the online
+# check made start-up take minutes (and live checks waited). The first run, or a new model, still downloads.
+if os.getenv("VG_HF_ONLINE") != "1" and all(_downloaded(m) for m in (SPEAKER_MODEL, ASR_MODEL)):
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 # Optional: deeper scam-conversation understanding with Claude. Without a key the
 # rule-based Hindi/English phrase engine is used on its own.
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
