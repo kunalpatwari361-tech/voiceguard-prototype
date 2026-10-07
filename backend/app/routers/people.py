@@ -2,12 +2,14 @@
 Every route needs the login token from the OTP sign-up (app/auth.py); accounts are created only there."""
 import asyncio
 import json
+import time
 
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlmodel import Session, or_, select
 
+from .. import config, messaging
 from ..ai import models
 from ..ai.audio_io import load_audio
 from ..ai.fingerprints import speech_mask
@@ -267,6 +269,43 @@ async def create_alert(body: NewAlert, me: User = Depends(current_user), s: Sess
     u = me
     return await push_alert(s, family_id=u.family_id, from_user_id=u.id, kind=body.kind, title=body.title,
                             body=body.body, payload=body.payload | {"from_name": u.name}, to_user_id=body.to_user_id)
+
+
+class WhatsAppAlert(BaseModel):
+    text: str
+    person: str = ""
+    details: str = ""
+
+
+_last_wa: dict[str, float] = {}
+
+
+@router.get("/alerts/whatsapp/status")
+def whatsapp_status(me: User = Depends(current_user)):
+    return {"enabled": messaging.enabled(), "status": messaging.status(), "from": config.TWILIO_WHATSAPP_FROM or None}
+
+
+@router.post("/alerts/whatsapp")
+async def whatsapp_alert(body: WhatsAppAlert, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    """"Tell family" on WhatsApp without opening WhatsApp: the server sends it to every family member and everyone
+    added by number, from the VoiceGuard WhatsApp number."""
+    if not messaging.enabled():
+        return {"enabled": False, "status": messaging.status(), "results": []}
+    if not me.family_id:
+        raise HTTPException(400, "You are not in a family circle yet.")
+    if time.time() - _last_wa.get(me.id, 0) < 20:
+        raise HTTPException(429, "WhatsApp alert already sent – wait a few seconds before sending again.")
+    _last_wa[me.id] = time.time()
+    people = {u.phone: u.name for u in s.exec(select(User).where(User.family_id == me.family_id)).all() if u.id != me.id}
+    for i in s.exec(select(FamilyInvite).where(FamilyInvite.family_id == me.family_id, FamilyInvite.status == "pending")).all():
+        people.setdefault(i.phone, i.name)
+    if not people:
+        raise HTTPException(400, "No family members to message yet – add them in Family.")
+    items = list(people.items())
+    sent = await asyncio.gather(*(asyncio.to_thread(messaging.send, phone, body.text[:1500], body.person or me.name, body.details)
+                                  for phone, _ in items))
+    return {"enabled": True, "status": messaging.status(),
+            "results": [{"name": name, "phone": phone} | r for (phone, name), r in zip(items, sent)]}
 
 
 @router.get("/alerts/{user_id}")

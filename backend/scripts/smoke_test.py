@@ -296,6 +296,17 @@ with TestClient(app) as c:
     r = c.post("/api/alerts", json={"from_user_id": papa["id"], "kind": "scam_call", "title": "t"}, headers=hp).json()
     check("family alert reports recipients", r["sent_to"] == 1, f"sent_to={r['sent_to']} online={r['online']}")
 
+    # WhatsApp family alert sent by the server (Twilio simulated) – the phone never opens WhatsApp
+    from app import config as vg_config, messaging  # noqa: E402
+    check("WhatsApp alert off until configured", c.get("/api/alerts/whatsapp/status", headers=hp).json()["enabled"] is False)
+    vg_config.TWILIO_WHATSAPP_FROM, vg_config.TWILIO_ACCOUNT_SID, vg_config.TWILIO_AUTH_TOKEN = "whatsapp:+14155238886", "ACtest", "tok"
+    wa_sent = []
+    messaging.send = lambda to, body, person="", details="": (wa_sent.append((to, body)), {"ok": True, "status": "sent"})[1]
+    r = c.post("/api/alerts/whatsapp", json={"text": "VoiceGuard ALERT: Papa is on a suspicious call"}, headers=hp).json()
+    check("WhatsApp alert to the family without opening WhatsApp",
+          r["enabled"] and [x["name"] for x in r["results"] if x["ok"]] == ["Rahul"] and wa_sent[0][0] == "+919876500002")
+    check("WhatsApp alert rate-limited", c.post("/api/alerts/whatsapp", json={"text": "again"}, headers=hp).status_code == 429)
+
     # logout revokes the token
     c.post("/api/auth/logout", headers=hm)
     check("logout revokes token", c.get("/api/auth/me", headers=hm).status_code == 401)

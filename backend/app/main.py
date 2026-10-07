@@ -47,7 +47,8 @@ app.mount("/demo", StaticFiles(directory=demo_dir), name="demo")
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "models": models.status(), "push": push.status(), "time": iso(now())}
+    from . import messaging
+    return {"ok": True, "models": models.status(), "push": push.status(), "whatsapp": messaging.status(), "time": iso(now())}
 
 
 @app.get("/api/demo/clips")

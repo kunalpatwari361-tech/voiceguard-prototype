@@ -49,6 +49,9 @@ OTP_TEST_NUMBERS = {
     pair.split(":")[0].strip(): pair.split(":")[1].strip()
     for pair in os.getenv("VG_OTP_TEST_NUMBERS", "").split(",") if ":" in pair
 }
+# WhatsApp family alerts sent by the server (Twilio WhatsApp; sandbox: "whatsapp:+14155238886"). See app/messaging.py.
+TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
+TWILIO_WHATSAPP_CONTENT_SID = os.getenv("TWILIO_WHATSAPP_CONTENT_SID", "").strip()   # approved template (production)
 OTP_TTL_S = 300            # a code is valid for 5 minutes
 OTP_MAX_ATTEMPTS = 5       # wrong guesses allowed per code
 OTP_RESEND_S = 30          # wait before asking for a new code

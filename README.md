@@ -225,6 +225,15 @@ Hold*, row 2 *AI check · Family · Keypad*, row 3 *Voice test · Panic · More*
 pill under the caller's name ("AI risk 87 · likely AI / scam"); *Family* puts **Are you really calling?** and
 **Tell family** together in one panel.
 
+**One tap, nothing else opens.** *Alert everyone now* sends the VoiceGuard app alert, an **SMS from your own SIM**
+and a **WhatsApp message sent by the server** at once (3 seconds to cancel a mistaken tap). WhatsApp does not let an
+app send from *your* WhatsApp without opening it, so the server sends from a WhatsApp business number through
+Twilio (`TWILIO_WHATSAPP_FROM`, `app/messaging.py`). For testing it is the Twilio WhatsApp Sandbox
+(+1 415 523 8886): each family phone sends `join <your code>` to it once (code in Twilio console → Messaging →
+Try it out → Send a WhatsApp message); alerts then reach them for 24 h after their last message to that number and
+the sandbox membership lasts 3 days. Production: your own WhatsApp sender + an approved template
+(`TWILIO_WHATSAPP_CONTENT_SID`). If WhatsApp can't be delivered, the panel offers *Open WhatsApp instead*.
+
 **Tell family during a call.** Three buttons in the *Family* panel: *App alert* (push to every family phone),
 *SMS* (sent straight from your phone on the call's SIM – works even if they have no internet; shows you the text
 first) and *WhatsApp* (opens their chat with the message typed in – WhatsApp only lets you press Send yourself).

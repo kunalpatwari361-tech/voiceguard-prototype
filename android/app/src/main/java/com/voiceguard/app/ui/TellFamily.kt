@@ -62,6 +62,14 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
+import com.voiceguard.app.data.json
+import com.voiceguard.app.data.bool
+import com.voiceguard.app.data.asObj
+import com.voiceguard.app.data.Api
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 
 /**
  * Tell the family during a call WITHOUT hanging up: VoiceGuard app alert, SMS (sent straight from the phone, works
@@ -160,67 +168,116 @@ object FamilyMessage {
 }
 
 /**
- * Three one-tap buttons: VoiceGuard alert · SMS · WhatsApp. [message] builds the text when tapped (fresh risk score);
- * [appAlert] sends the in-app family alert.
+ * One tap, nothing else opens: **Alert everyone** = VoiceGuard app alert + SMS from this phone's SIM + WhatsApp sent
+ * by the server (Twilio WhatsApp). Each send waits 3 seconds with a Cancel button so a mistaken tap can be undone.
+ * Without server WhatsApp, the WhatsApp button falls back to opening the chat with the message typed in.
  */
 @Composable
 fun TellFamilyBar(message: () -> String, appAlert: suspend () -> Pair<Boolean, String>) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var result by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var lines by remember { mutableStateOf<List<Pair<Boolean, String>>>(emptyList()) }
     var busy by remember { mutableStateOf<String?>(null) }
-    var confirmSms by remember { mutableStateOf(false) }
+    var pending by remember { mutableStateOf<String?>(null) }
+    var seconds by remember { mutableIntStateOf(0) }
+    var job by remember { mutableStateOf<Job?>(null) }
+    var waDirect by remember { mutableStateOf(false) }
     var pickWhatsApp by remember { mutableStateOf(false) }
     val people = FamilyMessage.recipients()
+    LaunchedEffect(Unit) { waDirect = runCatching { Api.get("/api/alerts/whatsapp/status").asObj().bool("enabled") == true }.getOrDefault(false) }
 
-    fun sendSmsNow() {
-        val text = message()
-        scope.launch {
-            busy = tr("Sending SMS…", "SMS भेज रहे हैं…")
-            val failed = FamilyMessage.sendSms(ctx, people, text)
-            result = if (failed.isEmpty()) true to tr("SMS sent to ", "SMS भेजा: ") + people.joinToString { it.first }
-                     else false to tr("SMS failed for ", "SMS नहीं गया: ") + failed.joinToString() + tr(" (no signal / SMS balance?)", " (सिग्नल / SMS बैलेंस?)")
+    fun smsAllowed() = ctx.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+
+    suspend fun doSms(text: String): List<Pair<Boolean, String>> {
+        if (!smsAllowed()) return listOf(false to tr("SMS: allow SMS permission first (tap SMS once).", "SMS: पहले SMS की अनुमति दें (SMS एक बार दबाएं)।"))
+        val failed = FamilyMessage.sendSms(ctx, people, text)
+        val ok = people.map { it.first }.filter { it !in failed }
+        return listOfNotNull(
+            ok.takeIf { it.isNotEmpty() }?.let { true to "SMS ✓ " + it.joinToString() },
+            failed.takeIf { it.isNotEmpty() }?.let { false to "SMS ✗ " + it.joinToString() + tr(" (signal / SMS balance?)", " (सिग्नल / बैलेंस?)") })
+    }
+
+    /** WhatsApp from the server; null = server WhatsApp not available. */
+    suspend fun doWhatsApp(text: String): List<Pair<Boolean, String>>? {
+        val r = runCatching { Api.post("/api/alerts/whatsapp", json("text" to text, "person" to Prefs.name)).asObj() }
+            .getOrElse { return listOf(false to "WhatsApp ✗ " + (it.message ?: "")) }
+        if (r.bool("enabled") != true) return null
+        return r.objs("results").map { x ->
+            if (x.bool("ok") == true) true to "WhatsApp ✓ " + x.str("name")
+            else false to "WhatsApp ✗ " + x.str("name") + " " + (x.str("error") ?: "")
+        }
+    }
+
+    /** 3-second countdown with Cancel, then [action]. */
+    fun later(what: String, action: suspend () -> Unit) {
+        job?.cancel()
+        job = scope.launch {
+            pending = what
+            for (s in 3 downTo 1) { seconds = s; delay(1000) }
+            pending = null
+            busy = tr("Sending…", "भेज रहे हैं…")
+            action()
             busy = null
         }
     }
 
     val smsPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) confirmSms = true else result = false to tr("SMS permission is needed to text your family.", "परिवार को SMS भेजने के लिए अनुमति चाहिए।")
+        if (ok) later("SMS") { lines = doSms(message()) }
+        else lines = listOf(false to tr("SMS permission is needed to text your family.", "परिवार को SMS भेजने के लिए अनुमति चाहिए।"))
     }
 
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(VG.surface).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(tr("Tell family – without hanging up", "परिवार को बताएं – कॉल काटे बिना"), fontWeight = FontWeight.SemiBold)
+        BigButton(tr("Alert everyone now", "सबको अभी अलर्ट करें"), Icons.Default.NotificationsActive, VG.red,
+            enabled = pending == null && busy == null) {
+            if (people.isEmpty()) { lines = listOf(false to noFamily()); return@BigButton }
+            later(tr("app alert + SMS + WhatsApp", "ऐप अलर्ट + SMS + WhatsApp")) {
+                val text = message()
+                val out = mutableListOf<Pair<Boolean, String>>()
+                appAlert().let { (ok, t) -> out += ok to (tr("App ", "ऐप ") + (if (ok) "✓ " else "✗ ") + t) }
+                out += doSms(text)
+                out += doWhatsApp(text) ?: listOf(false to tr("WhatsApp: not set up on the server – use the WhatsApp button (opens WhatsApp).",
+                    "WhatsApp: सर्वर पर चालू नहीं – WhatsApp बटन इस्तेमाल करें (WhatsApp खुलेगा)।"))
+                lines = out
+            }
+        }
         Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
             RoundAction(Icons.Default.NotificationsActive, tr("App alert", "ऐप अलर्ट"), VG.amber) {
-                scope.launch { busy = tr("Alerting family…", "परिवार को अलर्ट…"); result = appAlert(); busy = null }
+                later(tr("app alert", "ऐप अलर्ट")) { appAlert().let { (ok, t) -> lines = listOf(ok to t) } }
             }
             RoundAction(Icons.Default.Sms, "SMS", VG.blue) {
                 when {
-                    people.isEmpty() -> result = false to noFamily()
-                    ctx.checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED -> smsPerm.launch(Manifest.permission.SEND_SMS)
-                    else -> confirmSms = true
+                    people.isEmpty() -> lines = listOf(false to noFamily())
+                    !smsAllowed() -> smsPerm.launch(Manifest.permission.SEND_SMS)
+                    else -> later("SMS") { lines = doSms(message()) }
                 }
             }
             RoundAction(Icons.AutoMirrored.Filled.Chat, "WhatsApp", FamilyMessage.WHATSAPP_GREEN) {
                 when {
-                    people.isEmpty() -> result = false to noFamily()
-                    people.size == 1 -> openWhatsApp(ctx, people[0], message()) { result = it }
+                    people.isEmpty() -> lines = listOf(false to noFamily())
+                    waDirect -> later("WhatsApp") { lines = doWhatsApp(message()) ?: listOf(false to "WhatsApp ✗") }
+                    people.size == 1 -> openWhatsApp(ctx, people[0], message()) { lines = listOf(it) }
                     else -> pickWhatsApp = true
                 }
             }
         }
+        if (pending != null) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(VG.amber.copy(alpha = 0.15f))
+            .padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(tr("Sending $pending in $seconds s…", "$seconds सेकंड में $pending भेज रहे हैं…"), color = VG.amber, fontSize = 13.sp,
+                modifier = Modifier.weight(1f))
+            TextButton({ job?.cancel(); pending = null }) { Text(tr("Cancel", "रद्द करें"), color = VG.amber, fontWeight = FontWeight.Bold) }
+        }
         busy?.let { Busy(it) }
-        result?.let { (ok, text) -> Text(text, color = if (ok) VG.green else VG.amber, fontSize = 13.sp) }
+        lines.forEach { (ok, t) -> Text(t, color = if (ok) VG.green else VG.amber, fontSize = 13.sp) }
+        if (lines.any { !it.first && it.second.startsWith("WhatsApp") } && people.isNotEmpty())
+            SmallButton(tr("Open WhatsApp instead", "इसके बजाय WhatsApp खोलें"), Icons.AutoMirrored.Filled.Chat) {
+                if (people.size == 1) openWhatsApp(ctx, people[0], message()) { lines = listOf(it) } else pickWhatsApp = true
+            }
+        if (!waDirect && people.isNotEmpty()) Text(tr("WhatsApp opens the chat (tap Send there). Direct WhatsApp needs the server's Twilio WhatsApp set up.",
+            "WhatsApp में चैट खुलेगी (वहाँ Send दबाएं)। सीधे भेजने के लिए सर्वर पर Twilio WhatsApp चालू करें।"), color = VG.muted, fontSize = 11.sp)
     }
 
-    if (confirmSms) AlertDialog(
-        onDismissRequest = { confirmSms = false },
-        title = { Text(tr("Send SMS to your family?", "परिवार को SMS भेजें?")) },
-        text = { Text(people.joinToString { it.first } + "\n\n" + message()) },
-        confirmButton = { TextButton({ confirmSms = false; sendSmsNow() }) { Text(tr("Send SMS", "SMS भेजें")) } },
-        dismissButton = { TextButton({ confirmSms = false }) { Text(tr("Cancel", "रद्द करें")) } },
-    )
     if (pickWhatsApp) AlertDialog(
         onDismissRequest = { pickWhatsApp = false },
         title = { Text(tr("WhatsApp who?", "किसे WhatsApp करें?")) },
@@ -231,7 +288,7 @@ fun TellFamilyBar(message: () -> String, appAlert: suspend () -> Pair<Boolean, S
                 people.forEach { p ->
                     SmallButton(p.first, Icons.AutoMirrored.Filled.Chat, Modifier.fillMaxWidth()) {
                         pickWhatsApp = false
-                        openWhatsApp(ctx, p, message()) { result = it }
+                        openWhatsApp(ctx, p, message()) { lines = listOf(it) }
                     }
                 }
             }
