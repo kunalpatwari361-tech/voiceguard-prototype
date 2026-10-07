@@ -274,7 +274,7 @@ One UI may hold pushes for "sleeping" apps.
 
 **AI check says nothing / "AI is still starting"** – after `start_server.bat` the AI models need about 10–30 s to
 load (the window prints `AI models ready`). Once the models are downloaded the server loads them from
-`K:gtools\hf` without going online – on a slow connection the online check used to take minutes. Set
+`K:\vgtools\hf` without going online – on a slow connection the online check used to take minutes. Set
 `VG_HF_ONLINE=1` to force a fresh check for model updates.
 
 **Phone not listed by `adb devices`** – enable *Developer options → USB debugging*, use a data USB cable, and tap
