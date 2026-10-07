@@ -301,7 +301,7 @@ One UI may hold pushes for "sleeping" apps.
 | 6 | Live Call Check | Real time, at the top of the call screen: HD/demo calls fully; normal calls via loudspeaker every 6 s (auto for unknown callers), your own voice cut out by voice print, mic unblocked by "VoiceGuard call listening"* | `ui/LiveCall.kt`, `ai/separate.py`, `service/CallListenService.kt` |
 | 7 | Voice Note Check | Real (share WhatsApp audio to app) | `audio/Decoder.kt`, `ui/CheckScreen.kt` |
 | 8 | Are You Really Calling? | Real | `routers/verify.py`, `ui/CallTools.kt`, `ui/HdScreens.kt` |
-| 9 | Family Location Check | Real (GPS + map) | `service/Loc.kt`, `ui/FamilyScreens.kt` |
+| 9 | Family Location Check | Real (GPS + map): Family tab map, "Where is … now?" with a live fix on the call screen, the sender's place + Map button on every family alert, and a fresh map link in SMS / WhatsApp alerts | `service/Loc.kt`, `ui/FamilyScreens.kt`, `ui/CallTools.kt`, `routers/common.py` |
 | 10 | Voice Print Match | Real | `ai/models.py`, `ui/FamilyScreens.kt` |
 | 11 | VoiceGuard HD Call | Real (16 kHz app-to-app) | `audio/HdAudio.kt`, `routers/hdcall.py` |
 | 12 | Voice Test (Voice CAPTCHA) | Real | `ai/challenge.py`, `routers/checks.py` |

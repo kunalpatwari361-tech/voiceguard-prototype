@@ -21,6 +21,7 @@ os.environ["VG_DB"] = str(TMP / "test.db")  # never touch the real database
 os.environ["VG_FIREBASE_CREDENTIALS"] = str(TMP / "firebase-service-account.json")   # created later in the test
 os.environ["VG_FIREBASE_APP_CONFIG"] = str(TMP / "google-services.json")
 os.environ["VG_OTP_PROVIDER"] = "console"
+os.environ["TWILIO_WHATSAPP_FROM"] = ""            # never send real WhatsApp messages from the test
 os.environ["VG_OTP_TEST_NUMBERS"] = "+919876500001:111111,+919876500002:222222"
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -295,9 +296,13 @@ with TestClient(app) as c:
     check("alerts feed", len(alerts) >= 2, f"{len(alerts)} alerts")
     r = c.post("/api/alerts", json={"from_user_id": papa["id"], "kind": "scam_call", "title": "t"}, headers=hp).json()
     check("family alert reports recipients", r["sent_to"] == 1, f"sent_to={r['sent_to']} online={r['online']}")
+    r = c.post("/api/alerts", json={"from_user_id": rahul["id"], "kind": "panic", "title": "Rahul pressed PANIC"}, headers=hr).json()
+    check("alert carries where the sender's phone is", (r["payload"].get("location") or {}).get("place") == "Kothrud, Pune",
+          str(r["payload"].get("location")))
 
     # WhatsApp family alert sent by the server (Twilio simulated) – the phone never opens WhatsApp
     from app import config as vg_config, messaging  # noqa: E402
+    vg_config.TWILIO_WHATSAPP_FROM = ""                 # ignore the laptop's real backend/.env
     check("WhatsApp alert off until configured", c.get("/api/alerts/whatsapp/status", headers=hp).json()["enabled"] is False)
     vg_config.TWILIO_WHATSAPP_FROM, vg_config.TWILIO_ACCOUNT_SID, vg_config.TWILIO_AUTH_TOKEN = "whatsapp:+14155238886", "ACtest", "tok"
     wa_sent = []

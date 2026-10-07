@@ -85,9 +85,16 @@ object FamilyMessage {
             .mapNotNull { m -> m.str("phone")?.let { p -> (m.str("name") ?: Numbers.pretty(p)) to p } }
             .distinctBy { Numbers.normalize(it.second) }
 
+    @Volatile private var fresh: android.location.Location? = null
+
+    /** Get a fresh GPS fix (max 4 s) so the family gets an up-to-date map link. */
+    suspend fun prepareLocation(ctx: Context) {
+        fresh = withTimeoutOrNull(4000) { Loc.current(ctx) } ?: fresh
+    }
+
     fun text(ctx: Context, number: String?, claimed: String?, score: Int?): String {
         val me = Prefs.name ?: "Your family member"
-        val loc = Loc.lastKnownQuick(ctx)?.let { "https://maps.google.com/?q=%.5f,%.5f".format(Locale.US, it.latitude, it.longitude) }
+        val loc = (fresh?.takeIf { System.currentTimeMillis() - it.time < 15 * 60_000 } ?: Loc.lastKnownQuick(ctx))?.let { "https://maps.google.com/?q=%.5f,%.5f".format(Locale.US, it.latitude, it.longitude) }
         val caller = number?.takeIf { it.isNotBlank() }?.let { Numbers.pretty(it) }
         return if (Prefs.hindi) buildString {
             append("VoiceGuard चेतावनी: $me अभी एक संदिग्ध कॉल पर हैं।")
@@ -213,7 +220,9 @@ fun TellFamilyBar(message: () -> String, appAlert: suspend () -> Pair<Boolean, S
         job?.cancel()
         job = scope.launch {
             pending = what
+            val where = launch { FamilyMessage.prepareLocation(ctx) }     // runs during the countdown
             for (s in 3 downTo 1) { seconds = s; delay(1000) }
+            where.join()
             pending = null
             busy = tr("Sending…", "भेज रहे हैं…")
             action()
@@ -254,11 +263,15 @@ fun TellFamilyBar(message: () -> String, appAlert: suspend () -> Pair<Boolean, S
                 }
             }
             RoundAction(Icons.AutoMirrored.Filled.Chat, "WhatsApp", FamilyMessage.WHATSAPP_GREEN) {
-                when {
-                    people.isEmpty() -> lines = listOf(false to noFamily())
-                    waDirect -> later("WhatsApp") { lines = doWhatsApp(message()) ?: listOf(false to "WhatsApp ✗") }
-                    people.size == 1 -> openWhatsApp(ctx, people[0], message()) { lines = listOf(it) }
-                    else -> pickWhatsApp = true
+                if (people.isEmpty()) lines = listOf(false to noFamily())
+                else scope.launch {
+                    // ask the server every time: never open WhatsApp when the server can send it
+                    if (!waDirect) waDirect = runCatching { Api.get("/api/alerts/whatsapp/status").asObj().bool("enabled") == true }.getOrDefault(false)
+                    when {
+                        waDirect -> later("WhatsApp") { lines = doWhatsApp(message()) ?: listOf(false to "WhatsApp ✗") }
+                        people.size == 1 -> openWhatsApp(ctx, people[0], message()) { lines = listOf(it) }
+                        else -> pickWhatsApp = true
+                    }
                 }
             }
         }

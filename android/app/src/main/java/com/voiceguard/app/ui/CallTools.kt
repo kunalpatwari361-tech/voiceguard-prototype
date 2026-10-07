@@ -9,6 +9,17 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.HdrOn
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import com.voiceguard.app.data.num
 import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.HelpCenter
 import androidx.compose.material.icons.filled.ManageSearch
@@ -166,7 +177,47 @@ fun ReallyCallingSection(s: CallToolsState) {
             Banner(r.bi("message", "message_hi").orEmpty(), when (ans) { "yes" -> VG.green; "no" -> VG.red; else -> VG.amber },
                 r.obj("auto")?.bi("en", "hi"))
         }
+        ClaimedLocation(s)
     }
+}
+
+/** Family Location Check (9) during the call: where the person the caller claims to be really is. */
+@Composable
+fun ClaimedLocation(s: CallToolsState) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val member = Sync.member(s.claimedId) ?: return
+    val name = member.str("name").orEmpty()
+    var loc by remember(s.claimedId) { mutableStateOf(member.obj("location")) }
+    var busy by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf<String?>(null) }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Icon(Icons.Default.LocationOn, null, tint = VG.blue)
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(tr("Where is $name now?", "$name अभी कहाँ हैं?"), fontWeight = FontWeight.SemiBold)
+            Text(loc?.let { l -> (l.str("place") ?: "%.4f, %.4f".format(l.num("lat"), l.num("lon"))) +
+                tr(" · ${l.int("age_min") ?: 0} min ago", " · ${l.int("age_min") ?: 0} मिनट पहले") }
+                ?: tr("No location from $name's phone yet", "$name के फ़ोन से अभी लोकेशन नहीं"), color = VG.muted, fontSize = 13.sp)
+        }
+        if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        else SmallButton(tr("Live", "लाइव")) {
+            scope.launch {
+                busy = true; note = null
+                runCatching { Api.post("/api/location/request", json("asker_id" to Prefs.userId, "target_id" to s.claimedId)).asObj() }
+                    .onSuccess { r ->
+                        r.obj("user").obj("location")?.let { loc = it }
+                        if (r.bool("fresh") != true) note = tr("$name's phone did not answer – showing the last known place.",
+                            "$name के फ़ोन ने जवाब नहीं दिया – आख़िरी जगह दिखा रहे हैं।")
+                    }.onFailure { note = it.message }
+                busy = false
+            }
+        }
+    }
+    loc?.let { l ->
+        SmallButton(tr("Open map", "मैप खोलें"), Icons.Default.Map) { openUrl(ctx, "https://maps.google.com/?q=${l.num("lat")},${l.num("lon")}") }
+    }
+    note?.let { Text(it, color = VG.amber, fontSize = 12.sp) }
 }
 
 /** Family Alert (17) on demand during the call: app alert, SMS or WhatsApp. */

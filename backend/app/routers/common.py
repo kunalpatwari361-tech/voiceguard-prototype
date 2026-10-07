@@ -52,8 +52,13 @@ def alert_dict(a: Alert) -> dict:
 
 async def push_alert(s: Session, *, family_id: str | None, from_user_id: str | None, kind: str, title: str,
                      body: str = "", payload: dict | None = None, to_user_id: str | None = None) -> dict:
+    payload = dict(payload or {})
+    src = s.get(User, from_user_id) if from_user_id else None
+    if src and src.lat is not None and "location" not in payload and (age_min(src.loc_at) or 0) <= 120:
+        # the family member who receives the alert also sees where the sender's phone is
+        payload["location"] = {"lat": src.lat, "lon": src.lon, "place": src.place, "age_min": age_min(src.loc_at)}
     a = Alert(family_id=family_id, from_user_id=from_user_id, to_user_id=to_user_id, kind=kind,
-              title=title, body=body, payload_json=dumps(payload or {}))
+              title=title, body=body, payload_json=dumps(payload))
     s.add(a)
     s.commit()
     s.refresh(a)

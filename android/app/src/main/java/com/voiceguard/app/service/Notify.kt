@@ -86,11 +86,13 @@ object Notify {
 
     fun cancel(ctx: Context, id: Int) = nm(ctx).cancel(id)
 
-    fun alert(ctx: Context, title: String, body: String, callNumber: String? = null, callLabel: String? = null) {
+    fun alert(ctx: Context, title: String, body: String, callNumber: String? = null, callLabel: String? = null, mapUrl: String? = null) {
         val b = Notification.Builder(ctx, CH_ALERTS).setSmallIcon(R.drawable.ic_shield)
             .setContentTitle(title).setContentText(body).setStyle(Notification.BigTextStyle().bigText(body))
             .setAutoCancel(true).setContentIntent(open(ctx, "alerts"))
         if (callNumber != null) b.addAction(Notification.Action.Builder(null, callLabel ?: "Call", call(ctx, callNumber, callNumber.hashCode())).build())
+        if (mapUrl != null) b.addAction(Notification.Action.Builder(null, "Map", PendingIntent.getActivity(ctx, mapUrl.hashCode(),
+            Intent(Intent.ACTION_VIEW, Uri.parse(mapUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE)).build())
         nm(ctx).notify(nextId++, b.build())
     }
 

@@ -2,6 +2,8 @@ package com.voiceguard.app.service
 
 import android.content.Context
 import com.voiceguard.app.data.Sync
+import com.voiceguard.app.data.int
+import com.voiceguard.app.data.num
 import com.voiceguard.app.data.obj
 import com.voiceguard.app.data.str
 import kotlinx.serialization.json.JsonObject
@@ -44,16 +46,20 @@ object Inbox {
             "alert" -> {
                 val a = e.obj("alert")
                 val p = a.obj("payload")
+                // where the sender's phone is (added by the server when known)
+                val loc = p.obj("location")
+                val map = loc?.let { l -> l.num("lat")?.let { "https://maps.google.com/?q=$it,${l.num("lon")}" } }
+                val body = (a.str("body") ?: "") + (loc?.let { l -> "\n📍 " + (l.str("place") ?: "location") + " · ${l.int("age_min") ?: 0} min ago" } ?: "")
                 when (a.str("kind")) {
-                    "impersonation" -> Notify.alert(ctx, "⚠ " + (a.str("title") ?: ""), a.str("body") ?: "",
-                        p.str("asker_phone"), "Call ${p.str("asker_name") ?: "them"} now")
-                    "cyber_cell" -> Notify.alert(ctx, a.str("title") ?: "", a.str("body") ?: "", "1930", "Call 1930")
+                    "impersonation" -> Notify.alert(ctx, "⚠ " + (a.str("title") ?: ""), body,
+                        p.str("asker_phone"), "Call ${p.str("asker_name") ?: "them"} now", map)
+                    "cyber_cell" -> Notify.alert(ctx, a.str("title") ?: "", body, "1930", "Call 1930", map)
                     "scam_call", "panic", "bank_hold" -> {
                         val victim = Sync.member(a.str("from_user_id"))
-                        Notify.alert(ctx, "⚠ " + (a.str("title") ?: ""), a.str("body") ?: "",
-                            victim?.str("phone") ?: p.str("victim_phone"), "Call ${victim?.str("name") ?: p.str("from_name") ?: "them"} now")
+                        Notify.alert(ctx, "⚠ " + (a.str("title") ?: ""), body,
+                            victim?.str("phone") ?: p.str("victim_phone"), "Call ${victim?.str("name") ?: p.str("from_name") ?: "them"} now", map)
                     }
-                    else -> Notify.alert(ctx, a.str("title") ?: "VoiceGuard alert", a.str("body") ?: "")
+                    else -> Notify.alert(ctx, a.str("title") ?: "VoiceGuard alert", body, mapUrl = map)
                 }
             }
         }
