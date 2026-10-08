@@ -7,6 +7,7 @@ channels real calls and voice notes go through:
   lowbit_loss  AMR-like low bitrate + packet loss
   opus_wa      REAL Opus codec at WhatsApp voice-note bitrates
   phone_opus   phone line + packet loss + 8 kHz Opus (VoIP)
+  speaker      phone line -> the phone's loudspeaker -> a random room -> its microphone (Live Call Check)
 The split is by group (speaker / sentence / vocoded pair), so test sentences are never seen in training.
 
 Features are cached per (clip, condition) so adding clips or conditions only computes what is new.
@@ -28,9 +29,9 @@ sys.path.insert(0, str(ROOT))
 from app import config  # noqa: E402,F401
 from app.ai import models  # noqa: E402
 from app.ai.audio_io import load_audio  # noqa: E402
-from app.ai.phone_channel import codec_roundtrip, phone_channel  # noqa: E402
+from app.ai.phone_channel import codec_roundtrip, phone_channel, speaker_room  # noqa: E402
 
-CONDS = ["clean", "g711", "lowbit_loss", "opus_wa", "phone_opus"]
+CONDS = ["clean", "g711", "lowbit_loss", "opus_wa", "phone_opus", "speaker"]
 OLD_CONDS = ["clean", "g711", "lowbit_loss"]   # order used by the first version's features.npz
 OUT = ROOT / "app" / "ai" / "weights"
 
@@ -48,6 +49,8 @@ def cond_audio(y, cond, seed):
     if cond == "phone_opus":
         return codec_roundtrip(phone_channel(y, codec="g711", packet_loss=0.03, seed=seed), codec="opus",
                                level=rng.uniform(0.85, 1.0), codec_sr=8000)
+    if cond == "speaker":     # Live Call Check: the call played on the phone's loudspeaker, heard by its mic
+        return speaker_room(y, seed)
     raise ValueError(cond)
 
 
@@ -145,6 +148,7 @@ def main():
     ap.add_argument("root", nargs="?", default=r"K:\vgtools\data\vgset")
     ap.add_argument("--max-minutes", type=float, default=0, help="pause feature extraction after this long (resume later)")
     ap.add_argument("--out", default="vg_detector_candidate", help="weights file name (vg_detector = deploy directly)")
+    ap.add_argument("--conds", default=",".join(CONDS), help="conditions to fit on, e.g. 'speaker' for the room detector")
     a = ap.parse_args()
     root = Path(a.root)
     rows = list(csv.DictReader(open(root / "manifest.csv", encoding="utf-8")))
@@ -174,9 +178,10 @@ def main():
     cache.save()
     print("features complete", flush=True)
 
+    fit_conds = [c for c in a.conds.split(",") if c in CONDS]
     feats, meta = [], []
     for r in rows:
-        for c in CONDS:
+        for c in fit_conds:
             feats.append(cache.data[c][r["path"]])
             meta.append((r["label"], r["source"], r["lang"], r["group"] in test_groups, c))
     feats = np.stack(feats).astype(np.float32)
@@ -201,7 +206,7 @@ def main():
     p = clf.predict_proba(sc.transform(X))[:, 1]
     report = {"layers": layers, "C": C, "auc_all": round(auc_v, 4), "clips": len(rows),
               "by_condition": {}, "by_source": {}, "by_language": {}}
-    for c in CONDS:
+    for c in fit_conds:
         m = is_test & np.array([mm[4] == c for mm in meta])
         acc = float(((p[m] >= 0.5) == y[m]).mean())
         report["by_condition"][c] = {"auc": round(auc(p[m & y], p[m & ~y]), 4), "acc": round(acc, 4)}

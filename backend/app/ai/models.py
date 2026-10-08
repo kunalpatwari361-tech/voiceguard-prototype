@@ -95,12 +95,12 @@ class VoiceGuardDetector:
     """Our phone-robust detector: frozen WavLM features + logistic head trained on clean and
     phone-channel audio (training/train_detector.py)."""
 
-    def __init__(self, weights_path):
+    def __init__(self, weights_path, model_id: str = "voiceguard-wavlm-phone-v3"):
         w = np.load(weights_path)
         self.layers = [int(x) for x in w["layers"]]
         self.mean, self.scale = w["mean"], w["scale"]
         self.coef, self.intercept = w["coef"], float(w["intercept"][0])
-        self.model_id = "voiceguard-wavlm-phone-v1"
+        self.model_id = model_id
 
     def _prob(self, y: np.ndarray) -> float:
         st = layer_stats(speaker(), y)[self.layers].reshape(-1)
@@ -122,10 +122,15 @@ class VoiceGuardDetector:
 
 
 WEIGHTS = Path(__file__).resolve().parent / "weights" / "vg_detector.npz"
+# Live Call Check hears the caller through the loudspeaker + room: a separate head trained on that condition only
+# (one head for both made clean-audio results worse).
+ROOM_WEIGHTS = Path(__file__).resolve().parent / "weights" / "vg_detector_room.npz"
 
 
-def deepfake(model_id: str | None = None):
+def deepfake(model_id: str | None = None, room: bool = False):
     mid = model_id or config.DEEPFAKE_MODEL
+    if mid == "voiceguard" and room and ROOM_WEIGHTS.exists():
+        return _get("deepfake:voiceguard-room", lambda: VoiceGuardDetector(ROOM_WEIGHTS, "voiceguard-wavlm-room-v1"))
     if mid == "voiceguard" and WEIGHTS.exists():
         return _get("deepfake:voiceguard", lambda: VoiceGuardDetector(WEIGHTS))
     if mid == "voiceguard":  # not trained yet -> best public model from scripts/eval_detectors.py

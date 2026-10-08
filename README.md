@@ -121,6 +121,15 @@ SAPI) on clean, phone-line and WhatsApp audio. Known gap: one Spanish clip and o
 scored as AI (lower than v2) – the final risk score also needs other signals before it says DANGER.
 Previous model: `vg_detector_v2_backup.npz`.
 
+**Live calls on speaker get their own detector.** The Live Call Check hears the caller through the phone's
+loudspeaker and the room, which the main detector was never trained on: on unseen voices played through a
+simulated speaker + room it caught only 5% of AI voices and flagged 32% of real people. A second head
+(`vg_detector_room.npz`, trained on a randomised loudspeaker → room → microphone condition, plus 120 modern
+neural-TTS voices) is used only for live calls: **73% of unseen AI voices caught, 7% of real voices flagged, no real
+voice marked DANGER** (`scripts/eval_pipeline.py`, tested with a differently built room simulator). Voice
+fingerprints are shown but not counted on speaker calls (room sound hides them). This is the hardest condition –
+keep using *Are you really calling?* / HD call to confirm.
+
 Off-the-shelf detectors don't transfer, and phone lines destroy clean-audio clues – exactly pitch ideas #1 and #2.
 
 ## Run it

@@ -100,7 +100,7 @@ async def analyze(file: UploadFile = File(...),
         reply_gaps=json.loads(reply_gaps) if reply_gaps else None, number_score=nscore,
         really_calling=really_calling,
         voice_test=None if voice_test_passed is None else {"passed": voice_test_passed},
-        hd_call=hd_call, location=loc)
+        hd_call=hd_call, location=loc, room_audio=source == "live_call")
     if not result.get("ok"):
         log.info("analyze %s: %.1fs heard, %s", source, heard_s, result.get("error"))
         return result | {"caller_focus": focus}

@@ -24,13 +24,16 @@ def analyze_voice(y: np.ndarray, *, claimed_name: str | None = None, claimed_pri
                   transcript_hint: str = "", do_asr: bool = True, simulate_phone: bool = False,
                   reply_gaps: list[float] | None = None, number_score: float | None = None,
                   really_calling: str | None = None, voice_test: dict | None = None,
-                  hd_call: str | None = None, location: dict | None = None) -> dict:
+                  hd_call: str | None = None, location: dict | None = None, room_audio: bool = False) -> dict:
+    """room_audio=True for the Live Call Check: the caller was heard through the loudspeaker and the room.
+    Room echo and noise hide the voice fingerprints (tests: ~0.15 for real AND AI voices), so they are reported
+    but not counted in the risk score; the trained AI-voice detector covers this condition."""
     t0 = time.time()
     timings = {}
     if simulate_phone:
         y = phone_channel.phone_channel(y, codec="g711", packet_loss=0.02, seed=1)
     y = y[: 16000 * 60]
-    narrow = simulate_phone or phone_channel.is_narrowband(y)
+    narrow = simulate_phone or room_audio or phone_channel.is_narrowband(y)
     fp = fingerprints.analyze(y, narrowband=narrow)
     timings["fingerprints"] = round(time.time() - t0, 2)
     if fp["stats"]["speech_s"] < 1.0:
@@ -39,7 +42,7 @@ def analyze_voice(y: np.ndarray, *, claimed_name: str | None = None, claimed_pri
                 "message_hi": "इस क्लिप में बोली बहुत कम है। कम से कम 3 सेकंड की आवाज़ रिकॉर्ड करें।"}
 
     t = time.time()
-    df = models.deepfake().predict(y)
+    df = models.deepfake(room=room_audio).predict(y)
     timings["deepfake"] = round(time.time() - t, 2)
 
     vp = None
@@ -69,13 +72,16 @@ def analyze_voice(y: np.ndarray, *, claimed_name: str | None = None, claimed_pri
                             f"इमरजेंसी की कहानी से मेल नहीं खाता।"}
 
     risk = fuse({
-        "deepfake": df["fake_prob"], "fingerprints": fp["score"], "voiceprint": vp,
+        "deepfake": df["fake_prob"], "fingerprints": None if room_audio else fp["score"], "voiceprint": vp,
         "scam_words": sw["score"] if sw else None,
         "scam_words_tips": sw["rules"]["tips"] if sw else None,
         "reply_delay": rd["score"] if rd else None, "number": number_score,
         "really_calling": really_calling, "voice_test": voice_test, "hd_call": hd_call,
         "location": loc_signal,
     })
+    if room_audio:
+        fp["note"] = "Heard through the loudspeaker: room sound hides these signs, so they are not counted in the score."
+        fp["note_hi"] = "स्पीकर से सुनी आवाज़: कमरे की आवाज़ इन संकेतों को छुपा देती है, इसलिए स्कोर में नहीं गिने गए।"
     return _clean({
         "ok": True,
         "risk": risk,
