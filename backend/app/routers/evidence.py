@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from .. import voice_id
 from ..ai.number_info import normalize
 from ..config import EVIDENCE_DIR
 from ..db import Evidence, User, get_session
@@ -83,14 +84,26 @@ def audio(evidence_id: str, me: User = Depends(current_user), s: Session = Depen
     return FileResponse(EVIDENCE_DIR / e.audio_file, media_type="audio/wav", filename=f"voiceguard-{e.id}.wav")
 
 
-def complaint_text(e: Evidence, victim: User | None) -> str:
+def call_voice_id(s: Session, e: Evidence) -> dict | None:
+    """Scam Voice ID of this call: from the saved report, or linked later by a report / 'Are you really calling?'."""
+    r = json.loads(e.report_json or "{}")
+    vid = (r.get("voice_id") or {}).get("id")
+    return voice_id.get(vid) if vid else voice_id.for_call(s, e.user_id, normalize(e.number) if e.number else None,
+                                                          e.created_at)
+
+
+def complaint_text(e: Evidence, victim: User | None, vid: dict | None = None) -> str:
     r = json.loads(e.report_json or "{}")
     reasons = "; ".join(x.get("en", "") for x in r.get("risk", {}).get("reasons", [])[:5] if x.get("en"))
+    rev = r.get("reverse_engineering") or {}
+    made = f" VoiceGuard analysis of the voice: {rev['label']}." if rev.get("label") and rev.get("kind") != "human" else ""
+    linked = (f" The caller's voice matches VoiceGuard Scam Voice ID {vid['id']}, heard in {vid['calls']} reported scam "
+              f"call(s) from {len(vid['numbers'])} number(s): {', '.join(vid['numbers'][:6])}.") if vid else ""
     return (f"On {e.created_at:%d %b %Y at %H:%M} UTC, {victim.name if victim else 'the victim'} "
             f"({victim.phone if victim else ''}) received a suspected fraud call from {e.number or 'an unknown number'}"
             f"{' in which the caller pretended to be ' + e.claimed_name if e.claimed_name else ''}. "
             f"VoiceGuard risk score: {e.risk_score if e.risk_score is not None else 'n/a'}/100 ({e.level or 'n/a'}). "
-            f"Signals: {reasons or 'see attached report'}. "
+            f"Signals: {reasons or 'see attached report'}.{made}{linked} "
             f"{('Caller said: ' + e.transcript[:400]) if e.transcript else ''}").strip()
 
 
@@ -101,6 +114,7 @@ def chakshu(evidence_id: str, me: User = Depends(current_user), s: Session = Dep
     if not e:
         raise HTTPException(404)
     victim = s.get(User, e.user_id)
+    vid = call_voice_id(s, e)
     return {
         "url": CHAKSHU_URL,
         "cybercrime_url": CYBERCRIME_URL,
@@ -111,9 +125,9 @@ def chakshu(evidence_id: str, me: User = Depends(current_user), s: Session = Dep
             "Date": f"{e.created_at:%d-%m-%Y}",
             "Time": f"{e.created_at:%H:%M} UTC",
             "Complainant mobile": victim.phone if victim else "",
-            "Description": complaint_text(e, victim),
+            "Description": complaint_text(e, victim, vid),
         },
-        "complaint_text": complaint_text(e, victim),
+        "complaint_text": complaint_text(e, victim, vid),
     }
 
 
@@ -124,6 +138,23 @@ def report_html(evidence_id: str, me: User = Depends(current_user), s: Session =
         raise HTTPException(404)
     victim = s.get(User, e.user_id)
     r = json.loads(e.report_json or "{}")
+    vid = call_voice_id(s, e)
+    rev = r.get("reverse_engineering") or {}
+    rev_html = ""
+    if rev:
+        rev_html = (f"<h2>How the voice was made (reverse engineering)</h2><p class=big2>{html.escape(rev.get('label', ''))}"
+                    f" &middot; confidence {round((rev.get('confidence') or 0) * 100)}%</p><p>{html.escape(rev.get('meaning', ''))}</p><ul>"
+                    + "".join(f"<li>{html.escape(x.get('en', ''))}</li>" for x in rev.get("evidence", [])) + "</ul>")
+    vid_html = ""
+    if vid:
+        vid_html = (f"<h2>Scam Voice ID {html.escape(vid['id'])}</h2><table>"
+                    f"<tr><th>Same voice heard in</th><td>{vid['calls']} reported scam call(s), {vid['families']} family(ies)</td></tr>"
+                    f"<tr><th>From numbers</th><td>{html.escape(', '.join(vid['numbers']) or '-')}</td></tr>"
+                    f"<tr><th>Voice type</th><td>{html.escape(vid.get('kind') or '-')}"
+                    f"{(' (imitating ' + html.escape(vid['clone_of']) + ')') if vid.get('clone_of') else ''}</td></tr>"
+                    f"<tr><th>First / last heard</th><td>{vid['first_seen']} / {vid['last_seen']} UTC</td></tr></table>"
+                    "<p style='font-size:13px;color:#444'>Linked by voice similarity (WavLM-SV embedding, cosine &ge; 0.86), "
+                    "not by audio storage. An investigative lead for the telecom operator / cyber cell, not proof of identity.</p>")
     rows = "".join(f"<tr><td>{html.escape(x.get('label', ''))}</td><td>{'' if x.get('score') is None else round(x['score'] * 100)}"
                    f"</td><td>{html.escape(x.get('en', ''))}</td></tr>" for x in r.get("risk", {}).get("reasons", []))
     esc = html.escape
@@ -132,7 +163,7 @@ def report_html(evidence_id: str, me: User = Depends(current_user), s: Session =
 <style>body{{font-family:system-ui,sans-serif;max-width:760px;margin:24px auto;padding:0 16px;color:#111}}
 h1{{font-size:22px}}table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #ccc;padding:6px;text-align:left;font-size:14px}}
 .big{{font-size:28px;font-weight:700;color:{'#b91c1c' if e.level == 'danger' else '#b45309' if e.level == 'caution' else '#15803d'}}}
-.box{{background:#f5f5f5;padding:12px;border-radius:8px;white-space:pre-wrap}}</style></head><body>
+.box{{background:#f5f5f5;padding:12px;border-radius:8px;white-space:pre-wrap}}.big2{{font-size:18px;font-weight:700}}</style></head><body>
 <h1>VoiceGuard - Suspected Scam Call Evidence</h1>
 <p>Evidence ID <b>{esc(e.id)}</b> &middot; saved {e.created_at:%d %b %Y %H:%M} UTC</p>
 <table><tr><th>Victim</th><td>{esc(victim.name if victim else '')} ({esc(victim.phone if victim else '')})</td></tr>
@@ -140,9 +171,10 @@ h1{{font-size:22px}}table{{border-collapse:collapse;width:100%}}td,th{{border:1p
 <tr><th>Pretended to be</th><td>{esc(e.claimed_name or '-')}</td></tr>
 <tr><th>Source</th><td>{esc(e.source)}</td></tr>
 <tr><th>Risk score</th><td class=big>{e.risk_score if e.risk_score is not None else '-'}/100 {esc((e.level or '').upper())}</td></tr></table>
+{rev_html}{vid_html}
 <h2>Signals</h2><table><tr><th>Check</th><th>Score</th><th>Finding</th></tr>{rows}</table>
 <h2>What the caller said</h2><div class=box>{esc(e.transcript or 'No transcript')}</div>
-<h2>Complaint text</h2><div class=box>{esc(complaint_text(e, victim))}</div>
+<h2>Complaint text</h2><div class=box>{esc(complaint_text(e, victim, vid))}</div>
 <p>Report: call <b>1930</b> (National Cyber Crime Helpline) &middot; <a href="{CYBERCRIME_URL}">cybercrime.gov.in</a>
 &middot; <a href="{CHAKSHU_URL}">Chakshu (Sanchar Saathi)</a></p>
 <p style="color:#666;font-size:12px">Generated by the VoiceGuard prototype. AI scores are indicators, not proof.</p>

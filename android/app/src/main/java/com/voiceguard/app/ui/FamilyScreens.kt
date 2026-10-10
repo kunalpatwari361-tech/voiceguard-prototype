@@ -158,6 +158,9 @@ fun FamilyScreen(nav: NavHostController, back: (() -> Unit)?) {
                 verify?.takeIf { it.first == m.str("id") }?.second?.let { r ->
                     Banner(r.bi("message", "message_hi").orEmpty(), when (r.str("answer")) { "yes" -> VG.green; "no" -> VG.red; else -> VG.amber },
                         r.obj("auto")?.bi("en", "hi"))
+                    r.obj("voice_id")?.takeIf { it.bool("saved") == true }?.let {
+                        Text("🔒 " + it.bi("en", "hi"), color = VG.violet, fontSize = 13.sp)
+                    }
                 }
             }
         }

@@ -1,0 +1,84 @@
+{
+ "classes": [
+  "human",
+  "ai_speech",
+  "classic_tts",
+  "neural_vc",
+  "dsp_changer"
+ ],
+ "layers": [
+  2,
+  3,
+  4,
+  5,
+  6
+ ],
+ "C": 0.01,
+ "balanced_accuracy": 0.9541,
+ "clips": 3071,
+ "conditions": [
+  "clean",
+  "g711",
+  "lowbit_loss",
+  "opus_wa",
+  "phone_opus"
+ ],
+ "recall": {
+  "human": 0.921,
+  "ai_speech": 1.0,
+  "classic_tts": 1.0,
+  "neural_vc": 0.9701,
+  "dsp_changer": 0.8796
+ },
+ "by_condition": {
+  "clean": 0.9754,
+  "g711": 0.9513,
+  "lowbit_loss": 0.9382,
+  "opus_wa": 0.9624,
+  "phone_opus": 0.9434
+ },
+ "confusion": {
+  "human": {
+   "human": 1515,
+   "ai_speech": 46,
+   "classic_tts": 1,
+   "neural_vc": 78,
+   "dsp_changer": 5
+  },
+  "ai_speech": {
+   "human": 0,
+   "ai_speech": 310,
+   "classic_tts": 0,
+   "neural_vc": 0,
+   "dsp_changer": 0
+  },
+  "classic_tts": {
+   "human": 0,
+   "ai_speech": 0,
+   "classic_tts": 100,
+   "neural_vc": 0,
+   "dsp_changer": 0
+  },
+  "neural_vc": {
+   "human": 14,
+   "ai_speech": 0,
+   "classic_tts": 0,
+   "neural_vc": 907,
+   "dsp_changer": 14
+  },
+  "dsp_changer": {
+   "human": 34,
+   "ai_speech": 0,
+   "classic_tts": 0,
+   "neural_vc": 31,
+   "dsp_changer": 475
+  }
+ },
+ "dsp_changer_by_effect": {
+  "gender": 0.9102,
+  "pitch": 0.8815,
+  "formant": 0.9,
+  "speed": 0.8083
+ },
+ "human_flagged_as_changer": 0.003
+}

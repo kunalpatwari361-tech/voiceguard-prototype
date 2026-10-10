@@ -10,8 +10,10 @@ channels real calls and voice notes go through:
   speaker      phone line -> the phone's loudspeaker -> a random room -> its microphone (Live Call Check)
 The split is by group (speaker / sentence / vocoded pair), so test sentences are never seen in training.
 
-Features are cached per (clip, condition) so adding clips or conditions only computes what is new.
+Features are cached per (clip, condition) so adding clips or conditions only computes what is new
+(~5 s per new clip); leaving clips out (--drop) or refitting (--quick) needs no feature work at all.
 Usage: python training/train_detector.py K:\\vgtools\\data\\vgset [--max-minutes 100] [--out vg_detector]
+       [--quick] [--drop source=gtts,lang=bn] [--conds speaker]
 Writes app/ai/weights/<out>.npz + <out>_report.json (default out: vg_detector_candidate)
 """
 import csv
@@ -149,9 +151,17 @@ def main():
     ap.add_argument("--max-minutes", type=float, default=0, help="pause feature extraction after this long (resume later)")
     ap.add_argument("--out", default="vg_detector_candidate", help="weights file name (vg_detector = deploy directly)")
     ap.add_argument("--conds", default=",".join(CONDS), help="conditions to fit on, e.g. 'speaker' for the room detector")
+    ap.add_argument("--quick", action="store_true",
+                    help="one fit with the layers + C the last full run picked (minutes) instead of trying 9 settings")
+    ap.add_argument("--drop", default="", help="leave clips out without deleting them, e.g. 'source=gtts,lang=bn'")
     a = ap.parse_args()
     root = Path(a.root)
     rows = list(csv.DictReader(open(root / "manifest.csv", encoding="utf-8")))
+    drops = [d.split("=", 1) for d in a.drop.split(",") if "=" in d]
+    if drops:
+        before = len(rows)
+        rows = [r for r in rows if not any(r.get(k.strip()) == v.strip() for k, v in drops)]
+        print(f"--drop {a.drop}: left out {before - len(rows)} clips", flush=True)
     groups = sorted({r["group"] for r in rows})
     random.Random(1).shuffle(groups)
     test_groups = set(groups[: len(groups) // 5])
@@ -162,7 +172,7 @@ def main():
     spk = models.speaker()  # reuse the WavLM backbone
     todo = [(i, r, c) for i, r in enumerate(rows) for c in CONDS if r["path"] not in cache.data[c]]
     print(f"features to compute: {len(todo)}", flush=True)
-    t = time.time()
+    t = last_save = time.time()
     last_y = (None, None)
     for k, (i, r, c) in enumerate(todo):
         if last_y[0] != r["path"]:
@@ -170,7 +180,9 @@ def main():
         cache.data[c][r["path"]] = models.layer_stats(spk, cond_audio(last_y[1], c, i)).astype(np.float16)
         if k % 200 == 0:
             print(f"  {k}/{len(todo)} {time.time() - t:.0f}s", flush=True)
+        if time.time() - last_save > 600:   # every save rewrites ~1 GB of cache: every 10 minutes, not every 200 clips
             cache.save()
+            last_save = time.time()
         if a.max_minutes and time.time() - t > a.max_minutes * 60:
             cache.save()
             print(f"PAUSED after {k + 1}/{len(todo)} features – run again to continue.", flush=True)
@@ -188,11 +200,17 @@ def main():
     y = np.array([m[0] == "fake" for m in meta])
     is_test = np.array([m[3] for m in meta])
 
+    layer_sets, Cs = ([4, 5, 6], [2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6, 7, 8]), (0.003, 0.01, 0.03)
+    if a.quick:
+        rep = OUT / f"{a.out}_report.json"
+        prev = json.loads(rep.read_text()) if rep.exists() else {"layers": [2, 3, 4, 5, 6], "C": 0.01}
+        layer_sets, Cs = (prev["layers"],), (prev["C"],)
+        print(f"--quick: layers={prev['layers']} C={prev['C']} (from {rep.name if rep.exists() else 'defaults'})")
     best = None
-    for layers in ([4, 5, 6], [2, 3, 4, 5, 6]):
+    for layers in layer_sets:
         X = feats[:, layers, :].reshape(len(feats), -1)
         sc = Scaler().fit(X[~is_test])
-        for C in (0.01, 0.03, 0.1):
+        for C in Cs:
             clf = LogReg(C).fit(sc.transform(X[~is_test]), y[~is_test].astype(np.float32))
             p = clf.predict_proba(sc.transform(X[is_test]))[:, 1]
             auc_v = auc(p[y[is_test]], p[~y[is_test]])

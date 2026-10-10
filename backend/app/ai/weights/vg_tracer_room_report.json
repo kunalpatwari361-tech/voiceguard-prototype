@@ -1,0 +1,76 @@
+{
+ "classes": [
+  "human",
+  "ai_speech",
+  "classic_tts",
+  "neural_vc",
+  "dsp_changer"
+ ],
+ "layers": [
+  2,
+  3,
+  4,
+  5,
+  6
+ ],
+ "C": 0.1,
+ "balanced_accuracy": 0.8071,
+ "clips": 3071,
+ "conditions": [
+  "speaker"
+ ],
+ "recall": {
+  "human": 0.7356,
+  "ai_speech": 0.9516,
+  "classic_tts": 1.0,
+  "neural_vc": 0.8021,
+  "dsp_changer": 0.5463
+ },
+ "by_condition": {
+  "speaker": 0.8071
+ },
+ "confusion": {
+  "human": {
+   "human": 242,
+   "ai_speech": 4,
+   "classic_tts": 0,
+   "neural_vc": 68,
+   "dsp_changer": 15
+  },
+  "ai_speech": {
+   "human": 2,
+   "ai_speech": 59,
+   "classic_tts": 0,
+   "neural_vc": 1,
+   "dsp_changer": 0
+  },
+  "classic_tts": {
+   "human": 0,
+   "ai_speech": 0,
+   "classic_tts": 20,
+   "neural_vc": 0,
+   "dsp_changer": 0
+  },
+  "neural_vc": {
+   "human": 26,
+   "ai_speech": 2,
+   "classic_tts": 0,
+   "neural_vc": 150,
+   "dsp_changer": 9
+  },
+  "dsp_changer": {
+   "human": 27,
+   "ai_speech": 0,
+   "classic_tts": 0,
+   "neural_vc": 22,
+   "dsp_changer": 59
+  }
+ },
+ "dsp_changer_by_effect": {
+  "gender": 0.551,
+  "pitch": 0.4815,
+  "formant": 0.75,
+  "speed": 0.5417
+ },
+ "human_flagged_as_changer": 0.0456
+}

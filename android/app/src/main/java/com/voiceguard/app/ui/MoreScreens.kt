@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +54,7 @@ import androidx.navigation.NavHostController
 import com.voiceguard.app.audio.Recorder
 import com.voiceguard.app.audio.Wav
 import com.voiceguard.app.data.Api
+import com.voiceguard.app.data.arr
 import com.voiceguard.app.data.Numbers
 import com.voiceguard.app.data.Prefs
 import com.voiceguard.app.data.Sync
@@ -77,18 +80,21 @@ fun ScamListScreen(nav: NavHostController, back: () -> Unit) {
     var tab by remember { mutableIntStateOf(0) }
     var list by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
     var blocked by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
+    var voices by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
     var number by remember { mutableStateOf("") }
     var reason by remember { mutableStateOf("") }
     var err by remember { mutableStateOf<String?>(null) }
     suspend fun load() {
         runCatching { list = Api.get("/api/scamlist").asList(); blocked = Api.get("/api/blocked/${Prefs.userId}").asList(); Sync.lists() }
             .onFailure { err = it.message }
+        runCatching { voices = Api.get("/api/voiceid").asObj().objs("voices") }
     }
     LaunchedEffect(Unit) { load() }
     Screen(tr("Scam list & blocking", "स्कैम सूची व ब्लॉक"), back) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(tab == 0, { tab = 0 }, label = { Text(tr("Community list", "समुदाय सूची") + " (${list.size})") })
             FilterChip(tab == 1, { tab = 1 }, label = { Text(tr("Blocked", "ब्लॉक") + " (${blocked.size})") })
+            FilterChip(tab == 2, { tab = 2 }, label = { Text(tr("Scam voices", "ठग आवाज़ें") + " (${voices.size})") })
         }
         Section(tr("Report or block a number", "नंबर रिपोर्ट या ब्लॉक करें"), Icons.Default.Flag, VG.red) {
             OutlinedTextField(number, { number = it }, label = { Text(tr("Phone number", "फ़ोन नंबर")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -109,7 +115,7 @@ fun ScamListScreen(nav: NavHostController, back: () -> Unit) {
                 Chip("${r.int("reports")} " + tr("reports", "रिपोर्ट"), VG.red)
             }
             r.str("last_reason")?.let { Text(it, color = VG.muted, fontSize = 13.sp) }
-        } else blocked.forEach { b ->
+        } else if (tab == 1) blocked.forEach { b ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(Numbers.pretty(b.str("number")), modifier = Modifier.weight(1f))
                 Text(tr("by ", "द्वारा ") + b.str("by"), color = VG.muted, fontSize = 13.sp)
@@ -118,7 +124,24 @@ fun ScamListScreen(nav: NavHostController, back: () -> Unit) {
                 }) { Icon(Icons.Default.Delete, null) }
             }
         }
-        Text(tr("Blocked numbers are rejected automatically on every family phone (needs Call screening permission).",
+        if (tab == 2) {
+            Text(tr("Voices confirmed as scammers' (reported, or the real person said 'not me'). Scammers change numbers, " +
+                "not voices: if one of these voices calls anyone using VoiceGuard, from any number, the call is flagged. " +
+                "Only voice numbers (embeddings) are kept, never recordings.",
+                "ठगों की पुष्टि की गई आवाज़ें। ठग नंबर बदलते हैं, आवाज़ नहीं: इनमें से कोई आवाज़ किसी भी नंबर से कॉल करे तो चेतावनी मिलेगी। " +
+                "सिर्फ़ आवाज़ के अंक सेव होते हैं, रिकॉर्डिंग नहीं।"), color = VG.muted, fontSize = 13.sp)
+            if (voices.isEmpty()) Text(tr("No scam voices yet.", "अभी कोई ठग आवाज़ नहीं।"), color = VG.muted)
+            voices.forEach { v ->
+                val nums = v.arr("numbers").mapNotNull { it.str() }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(v.str("id").orEmpty(), fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Chip("${v.int("calls")} " + tr("calls", "कॉल"), VG.red)
+                }
+                Text(tr("${nums.size} number(s): ", "${nums.size} नंबर: ") + nums.take(3).joinToString(", ") +
+                    (v.str("kind")?.let { " · $it" } ?: "") + (v.str("clone_of")?.let { tr(" · imitated $it", " · $it की नकल") } ?: ""),
+                    color = VG.muted, fontSize = 13.sp)
+            }
+        } else Text(tr("Blocked numbers are rejected automatically on every family phone (needs Call screening permission).",
             "ब्लॉक नंबर परिवार के हर फ़ोन पर अपने आप रिजेक्ट होते हैं।"), color = VG.muted, fontSize = 13.sp)
     }
 }

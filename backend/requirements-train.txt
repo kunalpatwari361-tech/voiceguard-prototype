@@ -4,3 +4,7 @@
 # Windows Smart App Control cannot block training.
 -r requirements.txt
 pyarrow==25.0.1               # reads the LibriSpeech sample parquet
+edge-tts==7.2.8               # Microsoft Edge neural voices (training/add_neural.py, add_more_voices.py)
+requests                      # used by gTTS
+# Google TTS voices for add_more_voices.py - install separately WITHOUT dependencies, because gTTS pins an old
+# click that conflicts with huggingface_hub:  .venv\Scripts\pip install --no-deps gTTS==2.5.4

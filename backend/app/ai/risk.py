@@ -7,7 +7,12 @@ person's device) overrides them - pitch idea #7.
 WEIGHTS = {
     "deepfake": 0.28, "voiceprint": 0.20, "scam_words": 0.16, "fingerprints": 0.14,
     "voice_test": 0.10, "location": 0.10, "reply_delay": 0.06, "number": 0.06,
+    "voice_changer": 0.14, "scam_voice": 0.22,
 }
+# A very sure AI-voice verdict is proof on its own: "nothing else found" (e.g. no scam words in a short clip)
+# must not average it away - that turned a 100 % AI voice into "caution 53". On unseen voices
+# (scripts/eval_pipeline.py) only ~2-3 % of real voices reach 0.9, while most AI voices do.
+AI_SURE, AI_LIKELY = 0.9, 0.7
 LABELS = {
     "deepfake": ("AI Voice Detector", "AI आवाज़ जाँच"),
     "voiceprint": ("Voice Print Match", "वॉइस प्रिंट मिलान"),
@@ -17,6 +22,8 @@ LABELS = {
     "location": ("Family Location", "परिवार की लोकेशन"),
     "reply_delay": ("Reply Delay", "जवाब में देरी"),
     "number": ("Number Info", "नंबर जानकारी"),
+    "voice_changer": ("Voice changer", "वॉइस चेंजर"),
+    "scam_voice": ("Scam Voice ID", "ठग की आवाज़ ID"),
     "really_calling": ("Are You Really Calling?", "क्या सच में आप कॉल कर रहे हैं?"),
     "hd_call": ("VoiceGuard HD Call", "VoiceGuard HD कॉल"),
 }
@@ -74,6 +81,19 @@ def fuse(signals: dict) -> dict:
         s["voice_test"] = 0.1 if vt.get("passed") else 0.85
         detail["voice_test"] = (("Caller passed the Voice Test.", "कॉलर ने वॉइस टेस्ट पास किया।") if vt.get("passed")
                                 else ("Caller failed the Voice Test.", "कॉलर वॉइस टेस्ट में फेल हुआ।"))
+    vc = signals.get("voice_changer")
+    if vc is not None:
+        s["voice_changer"] = float(vc)
+        detail["voice_changer"] = (f"Voice-changer effect found ({vc * 100:.0f}%): a real person is disguising their voice.",
+                                   f"वॉइस-चेंजर का असर मिला ({vc * 100:.0f}%): कोई असली इंसान अपनी आवाज़ छुपा रहा है।")
+    sv = signals.get("scam_voice")
+    if sv:
+        s["scam_voice"] = 0.95 if sv.get("strong") else 0.8
+        nums = len(sv.get("numbers") or [])
+        detail["scam_voice"] = (f"Same voice as {sv.get('calls', 0)} earlier reported scam call(s) from {nums} number(s) "
+                                f"- Voice ID {sv['id']} (similarity {sv.get('similarity', 0):.2f}).",
+                                f"यही आवाज़ पहले {sv.get('calls', 0)} रिपोर्ट हुई ठगी कॉल में थी ({nums} नंबर) "
+                                f"- Voice ID {sv['id']}।")
     loc = signals.get("location")
     if loc is not None:
         s["location"] = 0.8 if loc.get("mismatch") else 0.2
@@ -86,6 +106,13 @@ def fuse(signals: dict) -> dict:
         score = max(score, 0.75)
     if s.get("scam_words", 0) >= 0.85 and (s.get("deepfake", 0) >= 0.5 or s.get("voiceprint", 0) >= 0.9):
         score = max(score, 0.9)
+    if sv and sv.get("strong"):   # a voice the community already confirmed as a scammer's
+        score = max(score, 0.85)
+    ai = s.get("deepfake", 0.0)
+    if ai >= AI_SURE:
+        score = max(score, 0.70)
+    elif ai >= AI_LIKELY:
+        score = max(score, 0.45)
 
     overrides = []
     rc = signals.get("really_calling")

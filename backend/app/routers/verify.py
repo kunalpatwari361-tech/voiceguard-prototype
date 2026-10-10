@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from .. import voice_id
 from ..ai.number_info import normalize
 from ..auth import current_user, require_family, require_self
 from ..db import User, get_session
@@ -76,7 +77,11 @@ async def ask(body: Ask, me: User = Depends(current_user), s: Session = Depends(
                 hub.forget(rid)
                 answer, source = "no_answer", "timeout"
 
+    vid = None
     if answer == "no":
+        # their own phone proves the caller is fake: remember the caller's voice as a Scam Voice ID
+        vid = voice_id.confirm(s, asker, number, f"pretended to be {claimed.name} ('Are you really calling?' = no)",
+                               minutes=60)
         await push_alert(s, family_id=claimed.family_id, from_user_id=asker.id, to_user_id=claimed.id,
                          kind="impersonation",
                          title=f"Someone is pretending to be you to {asker.name}",
@@ -98,4 +103,4 @@ async def ask(body: Ask, me: User = Depends(current_user), s: Session = Depends(
                       f"{claimed.name} ने जवाब नहीं दिया। सावधान रहें और सेव नंबर पर वापस कॉल करें।"),
     }[answer]
     return {"request_id": rid, "answer": answer, "source": source, "auto": auto, "same_number": same_number,
-            "claimed": public_user(claimed), "message": msg[0], "message_hi": msg[1]}
+            "claimed": public_user(claimed), "message": msg[0], "message_hi": msg[1], "voice_id": vid}

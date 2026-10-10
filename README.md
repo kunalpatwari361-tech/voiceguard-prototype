@@ -4,7 +4,7 @@ Stops AI voice-clone scam calls ("Papa, I had an accident, send money"). Android
 
 ```
  Android phone (Kotlin + Jetpack Compose)                  Laptop (Python 3.14 + FastAPI)
- ┌──────────────────────────────────────┐  USB adb reverse ┌──────────────────────────────────────────┐
+ ┌──────────────────────────────────────┐ Wi-Fi (auto) /USB┌──────────────────────────────────────────┐
  │ OTP sign-up → login token on every   │                  │ /api/auth     OTP sign-up, tokens        │
  │ request                              │                  │                                          │
  │ VoiceGuard Dialer (default Phone app)│                  │ /api/analyze  AI voice · fingerprints ·  │
@@ -73,9 +73,11 @@ Stops AI voice-clone scam calls ("Papa, I had an accident, send money"). Android
 | Area | Technology |
 |---|---|
 | Classifier | Logistic regression on frozen WavLM features, fitted with PyTorch L-BFGS + a NumPy standard scaler (same maths as scikit-learn, but no SciPy – so Windows Smart App Control cannot block training) |
-| Real speech | Google FLEURS (Hindi, English, Marathi, Tamil, Telugu, Punjabi) · LibriSpeech sample (read with pyarrow 25) |
-| AI speech | Meta MMS-TTS (Hindi, English) · Microsoft SpeechT5 HiFi-GAN vocoder (re-synthesised real speech) · Windows SAPI voices |
+| Real speech | Google FLEURS (Hindi, English, Marathi, Tamil, Telugu, Punjabi, Bengali, Gujarati, Kannada, Malayalam) · LibriSpeech dev-clean (read with pyarrow 25) |
+| AI speech | Meta MMS-TTS (Hindi, English) · Microsoft SpeechT5 HiFi-GAN vocoder (re-synthesised real speech) · Windows SAPI voices · Microsoft Edge neural voices (edge-tts) · Google TTS (gTTS 2.5) |
 | Channel augmentation | G.711 phone line, AMR-like low bitrate, packet loss, real Opus (WhatsApp) and phone+Opus |
+| Voice-changer data | 400 real clips (6 languages) through Praat PSOLA effects like voice-changer apps: gender (pitch + formants), pitch only, formants only, speed with tempo restored (`training/add_voice_changer.py`) |
+| Source Tracer | 5-class softmax regression, class-balanced, PyTorch L-BFGS (`training/train_tracer.py`) |
 | Federated learning demo | FedAvg simulation in NumPy |
 
 ### Developer tools
@@ -91,8 +93,9 @@ Git + GitHub (private repo) · GitHub CLI 2.102 · Android platform-tools (adb) 
 | Voice Print Match (10) | Microsoft `wavlm-base-plus-sv` x-vectors (cosine ≥ 0.86 = same speaker); the detector reuses the same network, so no extra memory |
 | Scam Words (14), Voice Note text, Voice Test | OpenAI `whisper-small` (Hindi + English) + Hindi/Hinglish/English rule engine (tolerant of Whisper's spelling) |
 | Optional deeper scam-talk check | Claude (`claude-opus-5-5`) – only if `ANTHROPIC_API_KEY` is set in `backend/.env` |
-| Reverse Engineering Engine (4) | Signal processing: jitter/shimmer/HNR, breathing, pause rhythm, silence noise floor, formant jumps (phone-aware weights) |
-| Source Tracing (5) | Rule-based mapping of fingerprints to generator families (*prototype heuristic*) |
+| Reverse Engineering Engine (4) | Voice fingerprints (signal processing: jitter/shimmer/HNR, breathing, pause rhythm, silence noise floor, formant jumps) **+ one combined verdict "what made this voice"** from all the models: the AI-voice detector decides human vs AI-made, the Source Tracer names the kind, plus fingerprints, voice print, reply timing and Scam Voice ID |
+| Source Tracing (5) | **VoiceGuard Source Tracer** – *trained by us*: 5-class head on the same WavLM features (no extra network): human / AI voice clone or TTS / robotic TTS / AI voice changer (RVC style) / voice-changer app (pitch, gender, formant, speed). Separate head for loudspeaker audio (`app/ai/weights/vg_tracer*.npz`, 217 KB each) |
+| Scam Voice ID (tracking) | Microsoft `wavlm-base-plus-sv` embeddings of *confirmed* scam calls; cosine ≥ 0.86 links calls by voice across numbers and families (`app/voice_id.py`) |
 | Reply Delay (13) | Turn-gap timing from voice activity (works at any audio quality) |
 | Phone-quality training (#2) | 8 kHz, 300–3400 Hz, G.711 μ-law, AMR-like low bitrate, packet loss, real Opus |
 | Demo scam voices | Meta `mms-tts-hin` / `mms-tts-eng` (real neural TTS, CC-BY-NC – non-commercial) |
@@ -121,16 +124,93 @@ SAPI) on clean, phone-line and WhatsApp audio. Known gap: one Spanish clip and o
 scored as AI (lower than v2) – the final risk score also needs other signals before it says DANGER.
 Previous model: `vg_detector_v2_backup.npz`.
 
+**Detector v4 (10 Oct): trained on more human AND more AI voices.** `training/add_more_voices.py` added 1,166 clips:
+real speech in 4 new languages (Bengali, Gujarati, Kannada, Malayalam – FLEURS), 150 more English speakers and
+33 LibriSpeech audiobook speakers (v3 flagged too many of these as AI); AI speech from Microsoft Edge neural voices
+(new languages, 17 English accents, multilingual voices, random speed/pitch), Google TTS in 9 Indian languages and
+3 English accents, and vocoded copies of the new-language clips. Now 3,837 clips (1,900 human / 1,937 AI) in
+10 languages, each in 6 phone conditions; the head uses WavLM layers 1–8. Test on 99 voices **neither model ever
+heard** (held-out Edge/Google voices, new-language speakers, held-out LibriSpeech speakers – `scripts/eval_pipeline.py`):
+
+| Condition | AI voices caught v3 → **v4** | Real voices flagged v3 → **v4** |
+|---|---|---|
+| Clean | 95% → **97%** | 9% → **5%** |
+| Phone line | 85% → **90%** | 8% → **4%** |
+| WhatsApp voice note | 92% → **100%** | 10% → **5%** |
+| Loudspeaker (Live Call Check, room head) | 68% → **78%** | 10% → 10% |
+
+Real voices that reached the DANGER level: 7 → 2 (of ~220 tests); AI voices at DANGER: 108 → 136. No real voice
+scores ≥ 0.8 except one WhatsApp clip, so a detector score ≥ 0.9 is treated as proof on its own (below).
+Previous models: `vg_detector_v3_backup.npz`, `vg_detector_room_v1_backup.npz`. (The test set is stricter than the
+one quoted above for v3: it no longer reuses Hindi test clips that were in the training data.)
+
 **Live calls on speaker get their own detector.** The Live Call Check hears the caller through the phone's
 loudspeaker and the room, which the main detector was never trained on: on unseen voices played through a
 simulated speaker + room it caught only 5% of AI voices and flagged 32% of real people. A second head
 (`vg_detector_room.npz`, trained on a randomised loudspeaker → room → microphone condition, plus 120 modern
-neural-TTS voices) is used only for live calls: **73% of unseen AI voices caught, 7% of real voices flagged, no real
-voice marked DANGER** (`scripts/eval_pipeline.py`, tested with a differently built room simulator). Voice
-fingerprints are shown but not counted on speaker calls (room sound hides them). This is the hardest condition –
-keep using *Are you really calling?* / HD call to confirm.
+neural-TTS voices) is used only for live calls: v1 caught 73% of unseen AI voices; **v2 (round-2 data) catches 78%
+on the stricter test, with 1 of 51 real voices marked DANGER** (`scripts/eval_pipeline.py`, tested with a differently
+built room simulator). Voice fingerprints are shown but not counted on speaker calls (room sound hides them). This is
+the hardest condition – keep using *Are you really calling?* / HD call to confirm.
+
+**Risk score fix.** The score is a weighted average, so "no scam words found" used to pull a 100 % AI voice down to
+CAUTION 53. Now a detector score ≥ 0.9 keeps the risk at DANGER (≥ 70) and ≥ 0.7 at least CAUTION (≥ 45); the
+family's own proof (*Are you really calling?* = yes, verified HD call) still overrides it (`app/ai/risk.py`).
+
+**Speed.** Speech-to-text (Whisper) was 75–85 % of a check. It now runs its audio encoder once instead of twice
+(language detection + transcription; identical text, ~45 % faster); the detector's 6-second windows go through WavLM
+in one batch (identical scores); and the call screen's second pass (with speech-to-text) reuses the voice checks of
+its first quick pass instead of redoing them. A voice note check went from ~8–12 s to ~3–6 s on this laptop.
 
 Off-the-shelf detectors don't transfer, and phone lines destroy clean-audio clues – exactly pitch ideas #1 and #2.
+
+### Source Tracer: what made the voice (incl. voice changers)
+
+The detector answers "AI or human?". The Source Tracer answers "**what** made it?", and it is the only model that
+hears **voice-changer apps** (a real person disguising their voice – the detector is not trained on those, because
+they are not AI). Both read the same WavLM pass, so the extra cost is one small matrix multiply.
+
+Held-out test (`app/ai/weights/vg_tracer_report.json`; new sentences, phone + WhatsApp conditions):
+
+| Class | Recall |
+|---|---|
+| Human | 92% |
+| AI voice clone / TTS (MMS-TTS, neural TTS) | 100% |
+| Robotic TTS (SAPI) | 100% |
+| AI voice changer (real speech re-voiced by a neural vocoder – the last stage of RVC-style changers, used as their stand-in) | 97% |
+| Voice-changer app (gender 91%, pitch 88%, formant 90%, speed 81%) | 88% |
+
+Balanced accuracy 95.4%. Real voices wrongly called "voice changer": **0.24%** (at 50%); the risk score counts a
+voice changer only from 60% (83% caught, 0.18% false). **Honest limits:**
+- *New speakers.* With every LibriSpeech speaker held out of training, voice changers were still caught 81% with 0%
+  false alarms, but the tracer alone called only 76% of those real voices "human" – so it never overrules the
+  detector on human vs AI. On three more unseen English speakers it caught the *speed* effect (2 of 3) but missed
+  gender / pitch / formant changes. It needs many more speakers and recordings from real voice-changer apps
+  (Voicemod, MagicCall…) before it is reliable for every voice.
+- *Loudspeaker (Live Call Check).* Room sound hides the effect: the room head catches 55% at 4.6% false alarms, so
+  during live calls a voice changer is only shown at ≥ 90% (37% caught, 0.3% false) and never raises the risk.
+- "AI voice changer" is learned from vocoder re-synthesis, not from RVC itself.
+
+Retrain after adding data: `retrain_tracer.bat` (re-uses the detector's cached features; ~30 min for new clips).
+
+## Scam Voice ID: tracking scammers by voice
+
+Scammers change SIM cards; the voice they use – their own, a voice-changer preset, or the voice they cloned – stays
+much the same. VoiceGuard links calls by **voice**:
+
+1. Every risky check keeps the caller's **voice embedding** (512 numbers from WavLM-SV – not audio) for 7 days.
+2. When a family **confirms** the scam – *Block & report*, or *Are you really calling?* answered **NO** – that voice
+   gets an ID such as `SV-3F9A21` (`app/voice_id.py`).
+3. Every later check, in **any** family, compares the caller with all Scam Voice IDs. Same voice (cosine ≥ 0.86,
+   the model card's same-speaker threshold) → *"Known scam voice SV-3F9A21: heard in 3 reported scam calls from 2
+   numbers"*, risk ≥ 85, and the calls are linked.
+4. The evidence report and Chakshu / 1930 complaint text list the linked calls and numbers – a lead the telecom
+   operator and cyber cell can follow (they can trace the numbers; VoiceGuard cannot locate anyone).
+
+Safeguards: a voice that matches a family member's own voice print and does not sound AI-made is never saved; a
+caller who matches a family member's voice print is not accused just because a *clone* of that person was reported;
+unconfirmed embeddings are deleted after 7 days; only embeddings are stored. A voice match is an investigative lead,
+not proof of identity. API: `GET /api/voiceid`, `GET /api/voiceid/{id}`; app: *Scam list → Scam voices*.
 
 ## Run it
 
@@ -143,9 +223,12 @@ python -m venv .venv
 Then build the APK with `build_app.bat` (or open `android/` in Android Studio and press Run).
 
 1. **Start the server** – double-click `start_server.bat` (first start downloads/loads models, ~30 s after the first time).
-2. **Phones** – enable *Developer options → USB debugging* on both phones, plug them into the laptop, accept the prompt.
-3. **Install** – double-click `install_app.bat` (installs the APK and links each phone to the server over USB).
-   Re-run `connect_phones.bat` whenever you re-plug a phone.
+   It listens on Wi-Fi too and prints the laptop's address. If Windows Firewall asks, allow it.
+2. **Phones – no cable needed.** Put the phones on the **same Wi-Fi as the laptop** (or on the laptop's
+   *Settings → Network → Mobile hotspot*) and open VoiceGuard: it finds the server by itself (see below).
+   USB still works too.
+3. **Install** – once, with USB *or* wireless debugging: double-click `install_app.bat` (or send the APK
+   `android\app\build\outputs\apk\debug\app-debug.apk` to the phone and open it).
 4. **Set up** – on Papa's phone: name, number, role *Parent* → **Send OTP** → type the 6-digit code →
    *Create family circle*. Then **Family → Add family member** → pick Rahul from contacts (or type his number) →
    send him the invite by SMS / WhatsApp.
@@ -162,6 +245,15 @@ acts as "Rahul's phone" (online, not on a call, voice print saved, receives aler
 (Hindi, Marathi, Tamil, Telugu, Punjabi). Feature extraction pauses by itself after 100 minutes and resumes where it
 stopped when you run it again. The result is saved as `app/ai/weights/vg_detector_candidate.npz` with a report per
 language; copy it over `vg_detector.npz` only if the report is better, then restart the server.
+
+Every clip is turned into WavLM numbers once per condition (~0.8 s each) and cached in
+`K:\vgtools\data\vgset\featcache`, so later runs are fast (in `backend\`):
+- `python training\train_detector.py K:\vgtools\data\vgset --quick` – one fit with the last run's best settings (minutes)
+- `... --quick --drop source=gtts` – leave clips out (a source, a language: `lang=bn`) without deleting them
+- `... --quick --conds speaker --out vg_detector_room_candidate` – the Live Call Check head
+- new clips: add rows to `manifest.csv` (or extend `training/add_more_voices.py`); only they are processed (~5 s each)
+- compare before deploying: `python scripts\eval_pipeline.py --weights app\ai\weights\vg_detector_candidate.npz
+  --room-weights app\ai\weights\vg_detector_room_candidate.npz` (voices never used for training)
 
 ## Sign-up and security (OTP)
 
@@ -271,7 +363,24 @@ Set-up (once, free Firebase "Spark" plan):
 Samsung phones: also set *Settings → Battery → Background usage limits → Never sleeping apps → VoiceGuard*, or
 One UI may hold pushes for "sleeping" apps.
 
+### How the phone finds the laptop (no cable)
+
+When the server can't be reached, the app searches by itself and saves what works (`data/ServerFinder.kt`):
+the last address → USB (`127.0.0.1` via `adb reverse`) → a Wi-Fi broadcast that the server answers
+(`app/discovery.py`, UDP 8001) → the Wi-Fi gateway (laptop hotspot) → every address of the phone's Wi-Fi (/24,
+for Wi-Fi that blocks broadcasts). Takes 1–5 s; the Setup screen shows the address it found. Wi-Fi without
+internet (a hotspot) is handled too – the app talks to the laptop over Wi-Fi even if Android prefers mobile data.
+
+*Security:* `start_server.bat` now listens on the whole Wi-Fi (`--host 0.0.0.0`). Every API call except sign-up
+still needs a login token, but the connection is plain HTTP – use home Wi-Fi or the laptop's hotspot, not public
+Wi-Fi. For USB-only, run uvicorn with `--host 127.0.0.1` (and `VG_DISCOVERY=0`).
+
 ## Troubleshooting
+
+**"Cannot reach the VoiceGuard server"** – is `start_server.bat` running? Are phone and laptop on the same Wi-Fi?
+College / office Wi-Fi often blocks phone-to-laptop traffic (client isolation): turn on the laptop's *Mobile
+hotspot* and join it from the phone. If Windows Firewall blocked Python when it asked, allow
+"Python" under *Windows Security → Firewall → Allow an app through firewall*.
 
 **`adb : The term 'adb' is not recognized…`** – Windows doesn't know where `adb.exe` is.
 - The `.bat` scripts don't need it on PATH: they search PATH, `ANDROID_HOME`, `ANDROID_SDK_ROOT`,
@@ -302,6 +411,9 @@ load (the window prints `AI models ready`). Once the models are downloaded the s
 8. **Verify with HD call** → Rahul accepts → real HD audio between the phones, live AI check of Rahul's real voice
    (voice print **match**, low risk).
 9. *Future lab* → Bank API holds the ₹50,000 payment; police join; telecom flag; voice shield; federated learning.
+10. **Scam Voice ID** – in the scam call's report tap **Block & report** → *"Caller's voice saved as Scam Voice ID
+    SV-…"*. Play another demo call (or the same AI voice from a different number) on another phone → red card
+    **Known scam voice**, linked calls in *Scam list → Scam voices* and in the evidence report.
 
 ## All 32 features → where they live
 
@@ -310,8 +422,8 @@ load (the window prints `AI models ready`). Once the models are downloaded the s
 | 1 | VoiceGuard Dialer | Real: default Phone app – keypad (T9 search), real call log, phone contacts, caller ID card, in-call keypad/hold/mute/speaker | `ui/DialerScreen.kt`, `data/Contacts.kt`, `ui/InCallActivity.kt`, `telecom/CallerIdOverlay.kt` |
 | 2 | Family Circle | Real: add members by phone number (they confirm with Join on their own verified number), or family code | `routers/people.py`, `ui/FamilyScreens.kt`, `ui/FamilyAdd.kt` |
 | 3 | AI Voice Detector | Real (trained model) | `ai/models.py`, `training/train_detector.py` |
-| 4 | Reverse Engineering Engine | Real | `ai/fingerprints.py` |
-| 5 | Source Tracing | Heuristic prototype | `ai/source_trace.py` |
+| 4 | Reverse Engineering Engine | Real: voice fingerprints + one combined verdict "what made this voice" from all the models | `ai/fingerprints.py`, `ai/source_trace.py` (`combine`) |
+| 5 | Source Tracing | Real (trained 5-class tracer incl. voice changers) | `ai/source_trace.py`, `training/train_tracer.py`, `training/add_voice_changer.py` |
 | 6 | Live Call Check | Real time, at the top of the call screen: HD/demo calls fully; normal calls via loudspeaker every 6 s (auto for unknown callers), your own voice cut out by voice print, mic unblocked by "VoiceGuard call listening"* | `ui/LiveCall.kt`, `ai/separate.py`, `service/CallListenService.kt` |
 | 7 | Voice Note Check | Real (share WhatsApp audio to app) | `audio/Decoder.kt`, `ui/CheckScreen.kt` |
 | 8 | Are You Really Calling? | Real | `routers/verify.py`, `ui/CallTools.kt`, `ui/HdScreens.kt` |
@@ -332,7 +444,7 @@ load (the window prints `AI models ready`). Once the models are downloaded the s
 | 23 | Family Calls Cyber Cell | Real | `routers/evidence.py` |
 | 24 | Spam Warning | Real (call screening role) | `telecom/ScreeningService.kt` |
 | 25 | Block Numbers | Real, shared by family | `telecom/ScreeningService.kt`, `routers/checks.py` |
-| 26 | Community Scam List | Real | `routers/checks.py` |
+| 26 | Community Scam List | Real: numbers **and Scam Voice IDs** (calls linked by voice, even from new numbers) | `routers/checks.py`, `app/voice_id.py` |
 | 27 | Auto Check Every Call | Partial (number on every call; voice on demo/HD) | Settings toggle |
 | 28 | Police Join the Call | Simulated | `routers/future.py` |
 | 29 | Telecom Partnership | Mock operator API | `routers/future.py` |

@@ -1,0 +1,76 @@
+{
+ "layers": [
+  2,
+  3,
+  4,
+  5,
+  6
+ ],
+ "C": 0.1,
+ "auc_all": 0.8516,
+ "clips": 2671,
+ "by_condition": {
+  "speaker": {
+   "auc": 0.8516,
+   "acc": 0.7625
+  }
+ },
+ "by_source": {
+  "fleurs": {
+   "n": 256,
+   "acc": 0.7656
+  },
+  "librispeech": {
+   "n": 73,
+   "acc": 0.3562
+  },
+  "mms_tts": {
+   "n": 48,
+   "acc": 0.9375
+  },
+  "neural_tts": {
+   "n": 14,
+   "acc": 1.0
+  },
+  "sapi": {
+   "n": 20,
+   "acc": 0.9
+  },
+  "vocoder_hifigan": {
+   "n": 187,
+   "acc": 0.8396
+  }
+ },
+ "by_language": {
+  "en": {
+   "n": 205,
+   "acc": 0.6829,
+   "real_kept_as_real": 0.536
+  },
+  "hi": {
+   "n": 196,
+   "acc": 0.8061,
+   "real_kept_as_real": 0.75
+  },
+  "mr": {
+   "n": 48,
+   "acc": 0.8333,
+   "real_kept_as_real": 0.8333
+  },
+  "pa": {
+   "n": 39,
+   "acc": 0.7692,
+   "real_kept_as_real": 0.6667
+  },
+  "ta": {
+   "n": 49,
+   "acc": 0.7959,
+   "real_kept_as_real": 0.7241
+  },
+  "te": {
+   "n": 61,
+   "acc": 0.8033,
+   "real_kept_as_real": 0.8182
+  }
+ }
+}

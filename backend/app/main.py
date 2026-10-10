@@ -1,7 +1,7 @@
 """VoiceGuard prototype server.
 
-Run:  .venv\\Scripts\\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-Phones reach it over USB with:  adb reverse tcp:8000 tcp:8000
+Run:  .venv\\Scripts\\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000   (start_server.bat)
+Phones on the same Wi-Fi find it by themselves (app/discovery.py); over USB:  adb reverse tcp:8000 tcp:8000
 """
 import asyncio
 import logging
@@ -17,7 +17,7 @@ from .ai import models
 from .db import Session, User, engine, init_db, now
 from .hub import hub
 from .auth import user_for_token
-from . import push
+from . import discovery, push
 from .routers import auth_routes, checks, evidence, future, hdcall, people, push_routes, verify
 from .routers.common import iso
 
@@ -28,6 +28,7 @@ log = logging.getLogger("voiceguard")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    discovery.start()
     if config.WARMUP_MODELS:
         threading.Thread(target=models.warmup, daemon=True).start()
     yield

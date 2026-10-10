@@ -176,6 +176,9 @@ fun ReallyCallingSection(s: CallToolsState) {
             val ans = r.str("answer")
             Banner(r.bi("message", "message_hi").orEmpty(), when (ans) { "yes" -> VG.green; "no" -> VG.red; else -> VG.amber },
                 r.obj("auto")?.bi("en", "hi"))
+            r.obj("voice_id")?.takeIf { it.bool("saved") == true }?.let {
+                Text("🔒 " + it.bi("en", "hi"), color = VG.violet, fontSize = 13.sp)
+            }
         }
         ClaimedLocation(s)
     }

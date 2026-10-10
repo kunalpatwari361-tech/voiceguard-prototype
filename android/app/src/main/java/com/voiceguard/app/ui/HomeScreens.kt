@@ -104,7 +104,7 @@ fun HomeScreen(nav: NavHostController) {
                 Column(Modifier.weight(1f)) {
                     Text(tr("Namaste, ", "नमस्ते, ") + (Prefs.name ?: ""), fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text(if (connected) tr("Protected · family link live", "सुरक्षित · परिवार लिंक चालू")
-                         else tr("Server offline – start laptop server / USB", "सर्वर बंद – लैपटॉप सर्वर / USB जाँचें"),
+                         else tr("Server offline – start the laptop server (same Wi-Fi or USB)", "सर्वर बंद – लैपटॉप सर्वर चालू करें (वही Wi-Fi या USB)"),
                         color = if (connected) VG.green else VG.amber, fontSize = 13.sp)
                     val famCount = fam.objs("members").count { it.str("id") != Prefs.userId }
                     Text("$famCount " + if (famCount == 1) tr("family member", "परिवार सदस्य") else tr("family members", "परिवार सदस्य"), color = VG.muted, fontSize = 13.sp)

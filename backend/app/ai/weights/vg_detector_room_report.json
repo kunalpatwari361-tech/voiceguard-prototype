@@ -1,76 +1,103 @@
 {
  "layers": [
+  1,
   2,
   3,
   4,
   5,
-  6
+  6,
+  7,
+  8
  ],
- "C": 0.1,
- "auc_all": 0.8516,
- "clips": 2671,
+ "C": 0.003,
+ "auc_all": 0.9019,
+ "clips": 3837,
  "by_condition": {
   "speaker": {
-   "auc": 0.8516,
-   "acc": 0.7625
+   "auc": 0.9019,
+   "acc": 0.8169
   }
  },
  "by_source": {
   "fleurs": {
-   "n": 256,
-   "acc": 0.7656
+   "n": 335,
+   "acc": 0.7881
+  },
+  "gtts": {
+   "n": 90,
+   "acc": 0.8
   },
   "librispeech": {
-   "n": 73,
-   "acc": 0.3562
+   "n": 20,
+   "acc": 0.85
   },
   "mms_tts": {
-   "n": 48,
-   "acc": 0.9375
+   "n": 62,
+   "acc": 0.9839
   },
   "neural_tts": {
-   "n": 14,
-   "acc": 1.0
+   "n": 59,
+   "acc": 0.9492
   },
   "sapi": {
-   "n": 20,
-   "acc": 0.9
+   "n": 18,
+   "acc": 0.8889
   },
   "vocoder_hifigan": {
-   "n": 187,
-   "acc": 0.8396
+   "n": 197,
+   "acc": 0.7716
   }
  },
  "by_language": {
+  "bn": {
+   "n": 61,
+   "acc": 0.8525,
+   "real_kept_as_real": 0.7333
+  },
   "en": {
-   "n": 205,
-   "acc": 0.6829,
-   "real_kept_as_real": 0.536
+   "n": 242,
+   "acc": 0.843,
+   "real_kept_as_real": 0.8505
+  },
+  "gu": {
+   "n": 41,
+   "acc": 0.7805,
+   "real_kept_as_real": 0.7333
   },
   "hi": {
-   "n": 196,
-   "acc": 0.8061,
-   "real_kept_as_real": 0.75
+   "n": 191,
+   "acc": 0.8063,
+   "real_kept_as_real": 0.7882
+  },
+  "kn": {
+   "n": 28,
+   "acc": 0.8571,
+   "real_kept_as_real": 0.8421
+  },
+  "ml": {
+   "n": 24,
+   "acc": 0.875,
+   "real_kept_as_real": 0.8667
   },
   "mr": {
-   "n": 48,
-   "acc": 0.8333,
+   "n": 64,
+   "acc": 0.8125,
    "real_kept_as_real": 0.8333
   },
   "pa": {
-   "n": 39,
-   "acc": 0.7692,
-   "real_kept_as_real": 0.6667
+   "n": 42,
+   "acc": 0.6667,
+   "real_kept_as_real": 0.56
   },
   "ta": {
-   "n": 49,
-   "acc": 0.7959,
-   "real_kept_as_real": 0.7241
+   "n": 43,
+   "acc": 0.814,
+   "real_kept_as_real": 0.7727
   },
   "te": {
-   "n": 61,
-   "acc": 0.8033,
-   "real_kept_as_real": 0.8182
+   "n": 45,
+   "acc": 0.8,
+   "real_kept_as_real": 0.75
   }
  }
 }

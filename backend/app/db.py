@@ -146,6 +146,37 @@ class PushToken(SQLModel, table=True):
     updated_at: dt.datetime = Field(default_factory=now)
 
 
+class ScamVoice(SQLModel, table=True):
+    """Scam Voice ID: a voice confirmed as a scammer's (reported, or "Are you really calling?" = no).
+    Stores the 512-d voice embedding only - never the audio."""
+    id: str = Field(default_factory=lambda: "SV-" + uuid.uuid4().hex[:6].upper(), primary_key=True)
+    embedding: str                            # JSON list of floats (mean of the confirmed calls, normalised)
+    samples: int = 1
+    kind: str | None = None                   # what made it (Source Tracer): ai_speech / dsp_changer / ...
+    clone_of: str | None = None               # name of the family member the voice imitated, if known
+    confirmations: int = 1
+    reason: str = ""
+    created_at: dt.datetime = Field(default_factory=now)
+    last_seen: dt.datetime = Field(default_factory=now)
+
+
+class VoiceSample(SQLModel, table=True):
+    """The caller's voice embedding from a risky check (kept 7 days unless linked to a Scam Voice ID)."""
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: str = Field(index=True)
+    number: str | None = Field(default=None, index=True)
+    created_at: dt.datetime = Field(default_factory=now)
+    embedding: str
+    risk_score: int | None = None
+    level: str | None = None
+    source: str = "call"
+    kind: str | None = None
+    fake_prob: float | None = None
+    voice_id: str | None = Field(default=None, index=True)
+    similarity: float | None = None
+    confirmed: bool = False                   # a family confirmed this call was a scam
+
+
 def init_db():
     SQLModel.metadata.create_all(engine)
     with Session(engine) as s:

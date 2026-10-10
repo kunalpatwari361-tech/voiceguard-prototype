@@ -11,6 +11,8 @@ import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.LocalPolice
 import androidx.compose.material.icons.filled.ManageSearch
+import androidx.compose.material.icons.filled.PersonSearch
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SmartToy
@@ -34,6 +36,8 @@ import com.voiceguard.app.audio.Wav
 import com.voiceguard.app.data.Api
 import com.voiceguard.app.data.Prefs
 import com.voiceguard.app.data.Sync
+import com.voiceguard.app.data.arr
+import com.voiceguard.app.data.asObj
 import com.voiceguard.app.data.bi
 import com.voiceguard.app.data.bool
 import com.voiceguard.app.data.int
@@ -78,6 +82,11 @@ fun ReportView(r: JsonObject, rc: ReportCtx, nav: NavHostController?, compact: B
             }
         }
     }
+    r.obj("voice_id")?.takeIf { it.bool("ignored") != true }?.let { ScamVoiceCard(it, compact) }
+    r.obj("reverse_engineering")?.let { ReverseVerdict(it, compact) }
+    r.obj("voice_id_saved")?.takeIf { it.bool("saved") == true }?.let {
+        Text("🔒 " + it.bi("en", "hi"), color = VG.violet, fontSize = 13.sp)
+    }
     if (compact) return
 
     val ai = r.obj("ai_voice")
@@ -99,7 +108,7 @@ fun ReportView(r: JsonObject, rc: ReportCtx, nav: NavHostController?, compact: B
     val st = r.obj("source_trace")
     Section(tr("Source Tracing", "स्रोत पहचान"), Icons.Default.GraphicEq, VG.violet) {
         Text(st.bi("label", "label_hi").orEmpty(), fontWeight = FontWeight.SemiBold)
-        st.objs("candidates").take(3).forEach { c -> Kv(c.str("label").orEmpty(), "${((c.num("prob") ?: 0.0) * 100).toInt()}%") }
+        st.objs("candidates").take(5).forEach { c -> ScoreRow(c.bi("label", "label_hi").orEmpty(), c.num("prob"), null) }
         Text(st.str("note").orEmpty(), color = VG.muted, fontSize = 12.sp)
     }
     r.obj("voice_print")?.let { vp ->
@@ -172,9 +181,10 @@ fun ReportActions(r: JsonObject, rc: ReportCtx, nav: NavHostController?) {
                 scope.launch {
                     msg = runCatching {
                         Api.post("/api/blocked", json("user_id" to Prefs.userId, "number" to rc.number))
-                        Api.post("/api/scamlist/report", json("number" to rc.number, "reporter_id" to Prefs.userId,
-                            "reason" to "VoiceGuard risk ${risk.int("score")}/100" + (claimed?.str("name")?.let { ", impersonated $it" } ?: "")))
-                        tr("Blocked and reported.", "ब्लॉक और रिपोर्ट हो गया।")
+                        val res = Api.post("/api/scamlist/report", json("number" to rc.number, "reporter_id" to Prefs.userId,
+                            "reason" to "VoiceGuard risk ${risk.int("score")}/100" + (claimed?.str("name")?.let { ", impersonated $it" } ?: ""))).asObj()
+                        tr("Blocked and reported.", "ब्लॉक और रिपोर्ट हो गया।") +
+                            (res.obj("voice_id")?.bi("en", "hi")?.let { "\n" + it } ?: "")
                     }.getOrElse { it.message }
                 }
             }
@@ -194,4 +204,46 @@ suspend fun saveEvidence(r: JsonObject, rc: ReportCtx): JsonObject {
         "source" to rc.source, "risk_score" to risk.int("score"), "level" to risk.str("level"),
         "transcript" to r.obj("transcript").str("text"), "report_json" to r.toString(),
     ), rc.audio?.let { Wav.encode(it) }) as JsonObject
+}
+
+/** Reverse Engineering verdict (4): every model's vote combined into "what made this voice". */
+@Composable
+fun ReverseVerdict(rev: JsonObject, compact: Boolean) {
+    val kind = rev.str("kind")
+    val c = when (kind) { "human" -> VG.green; "unclear" -> VG.amber; else -> VG.red }
+    if (compact) {
+        if (kind != "human") Text(tr("Voice: ", "आवाज़: ") + rev.bi("label", "label_hi"), color = c,
+            fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        return
+    }
+    Section(tr("Reverse Engineering: what made this voice", "रिवर्स इंजीनियरिंग: यह आवाज़ किसने बनाई"), Icons.Default.Science, c) {
+        Text(rev.bi("label", "label_hi").orEmpty(), color = c, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        Text(rev.bi("meaning", "meaning_hi").orEmpty(), fontSize = 14.sp)
+        rev.objs("evidence").forEach { Text("• " + it.bi("en", "hi"), color = VG.muted, fontSize = 13.sp) }
+        Kv(tr("Confidence", "भरोसा"), "${((rev.num("confidence") ?: 0.0) * 100).toInt()}%")
+        Text(tr("Models combined: ", "मिलाए गए मॉडल: ") + rev.arr("models").mapNotNull { it.str() }.joinToString(" + "),
+            color = VG.muted, fontSize = 12.sp)
+    }
+}
+
+/** Scam Voice ID: this caller's voice was already confirmed as a scammer's - even if the number is new. */
+@Composable
+fun ScamVoiceCard(v: JsonObject, compact: Boolean) {
+    val nums = v.arr("numbers").mapNotNull { it.str() }
+    val calls = v.int("calls") ?: 0
+    if (compact) {
+        Text(tr("⚠ Known scam voice ${v.str("id")}: heard in $calls reported scam call(s)",
+            "⚠ पहचानी हुई ठग की आवाज़ ${v.str("id")}: $calls रिपोर्ट हुई ठगी कॉल में"), color = VG.red,
+            fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        return
+    }
+    Section(tr("Known scam voice · ${v.str("id")}", "पहचानी हुई ठग की आवाज़ · ${v.str("id")}"), Icons.Default.PersonSearch, VG.red) {
+        Text(tr("This voice was already reported in $calls scam call(s) from ${nums.size} number(s).",
+            "यह आवाज़ पहले $calls ठगी कॉल में रिपोर्ट हो चुकी है (${nums.size} नंबर)।"), color = VG.red, fontWeight = FontWeight.Bold)
+        if (nums.isNotEmpty()) Kv(tr("Numbers used", "इस्तेमाल हुए नंबर"), nums.take(4).joinToString(", ") + if (nums.size > 4) " …" else "")
+        v.str("clone_of")?.let { Kv(tr("Imitated", "नकल की"), it) }
+        Kv(tr("Voice similarity", "आवाज़ समानता"), "%.2f".format(v.num("similarity") ?: 0.0))
+        Text(tr("Scammers change numbers, not voices. Do not trust this caller.",
+            "ठग नंबर बदलते हैं, आवाज़ नहीं। इस कॉलर पर भरोसा न करें।"), color = VG.muted, fontSize = 13.sp)
+    }
 }

@@ -73,7 +73,7 @@ object Api {
         }
     }
 
-    private suspend fun call(req: Request): JsonElement = withContext(Dispatchers.IO) {
+    private suspend fun call(req: Request, retried: Boolean = false): JsonElement = withContext(Dispatchers.IO) {
         try {
             client.newCall(req).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
@@ -90,7 +90,16 @@ object Api {
         } catch (e: ApiException) {
             throw e
         } catch (e: Exception) {
-            throw ApiException("Cannot reach VoiceGuard server at ${Prefs.serverUrl}. Is the laptop server running and USB connected?")
+            // No cable needed: look for the laptop server (same Wi-Fi, laptop hotspot or USB), then try once more there.
+            // Only when the address changed - the request never reached the old one, so repeating it is safe.
+            val before = Prefs.serverUrl
+            val now = if (retried) null else ServerFinder.find()
+            val old = req.url.toString()
+            if (now != null && now != before && old.startsWith(before)) {
+                return@withContext call(req.newBuilder().url(now + old.removePrefix(before)).build(), retried = true)
+            }
+            throw ApiException("Cannot reach the VoiceGuard server. Is the laptop server running? " +
+                "Keep this phone on the same Wi-Fi as the laptop (or connect USB).")
         }
     }
 }

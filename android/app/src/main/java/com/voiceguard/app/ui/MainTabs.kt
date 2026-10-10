@@ -276,7 +276,7 @@ private fun ProtectionCard(connected: Boolean, onRole: () -> Unit, openProtect: 
         }
         Text(when {
             !isDialer -> tr("Make VoiceGuard your Phone app so every call gets the AI check.", "VoiceGuard को फ़ोन ऐप बनाएं ताकि हर कॉल की AI जाँच हो।")
-            !connected -> tr("Server offline – start the laptop server / USB.", "सर्वर बंद – लैपटॉप सर्वर / USB जाँचें।")
+            !connected -> tr("Server offline – start the laptop server (same Wi-Fi or USB).", "सर्वर बंद – लैपटॉप सर्वर चालू करें (वही Wi-Fi या USB)।")
             !listening -> tr("AI checks unknown callers · tip: turn on call listening for the live check.", "AI अनजान कॉलर जाँचता है · सुझाव: कॉल लिसनिंग चालू करें।")
             else -> tr("AI checks unknown callers · family link live · scam SMS warnings on.", "AI अनजान कॉलर जाँचता है · परिवार लिंक चालू · स्कैम SMS चेतावनी चालू।")
         }, color = VG.muted, fontSize = 13.sp)

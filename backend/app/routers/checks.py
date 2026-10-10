@@ -1,6 +1,6 @@
 """Call checking: AI Voice Detector (3), fingerprints (4), Source Tracing (5), Live Call / Voice Note
 Check (6, 7), Voice Print Match (10), Voice Test (12), Reply Delay (13), Scam Words (14),
-Number Info (15), Final Risk Score (16), Spam / Block / Community list (24-26)."""
+Number Info (15), Final Risk Score (16), Spam / Block / Community list (24-26), Scam Voice ID."""
 import asyncio
 import datetime as dt
 import json
@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from .. import voice_id
 from ..ai import challenge, fingerprints, models, number_info, reply_delay, separate
 from ..ai.audio_io import load_audio
 from ..ai.pipeline import _clean, analyze_voice
@@ -100,7 +101,9 @@ async def analyze(file: UploadFile = File(...),
         reply_gaps=json.loads(reply_gaps) if reply_gaps else None, number_score=nscore,
         really_calling=really_calling,
         voice_test=None if voice_test_passed is None else {"passed": voice_test_passed},
-        hd_call=hd_call, location=loc, room_audio=source == "live_call")
+        hd_call=hd_call, location=loc, room_audio=source == "live_call",
+        voice_lookup=voice_id.match, return_embedding=True)
+    emb = result.pop("_embedding", None)
     if not result.get("ok"):
         log.info("analyze %s: %.1fs heard, %s", source, heard_s, result.get("error"))
         return result | {"caller_focus": focus}
@@ -112,6 +115,14 @@ async def analyze(file: UploadFile = File(...),
     result["claimed"] = {"id": claimed.id, "name": claimed.name, "voiceprint_enrolled": vp is not None,
                          "location": loc} if claimed else None
     result["source"] = source
+    if emb is not None:
+        # Scam Voice ID: keep this caller's voice (risky or already-known voices only) so a report can save it
+        voice_id.remember(s, user.id, number_info.normalize(number) if number else None, emb, result, source)
+        if really_calling == "no":   # the real person's own phone said it is not them: this voice is a scammer's
+            claimed_txt = f"pretended to be {claimed.name}" if claimed else "fake caller"
+            result["voice_id_saved"] = voice_id.confirm(
+                s, user, number_info.normalize(number) if number else None,
+                f"{claimed_txt} ('Are you really calling?' = no)", minutes=60)
     if user and result["risk"]["level"] != "safe":
         s.add(RiskEvent(user_id=user.id, score=result["risk"]["score"], level=result["risk"]["level"],
                         number=number_info.normalize(number) if number else None, source=source))
@@ -252,9 +263,26 @@ async def report_number(body: Report, me: User = Depends(current_user), s: Sessi
     n = number_info.normalize(body.number)
     s.add(ScamReport(number=n, reporter_id=body.reporter_id, reason=body.reason))
     s.commit()
+    # Scam Voice ID: the caller's voice from this call (if it was checked) is saved, so it is recognised
+    # even when the scammer calls someone else from a new number.
+    vid = voice_id.confirm(s, me, n, body.reason or "reported as scam")
     for uid in list(hub.conns):  # everyone refreshes their offline copy of the list
         await hub.send(uid, {"type": "scamlist_updated", "number": n})
-    return {"ok": True, "number": n}
+    return {"ok": True, "number": n, "voice_id": vid}
+
+
+@router.get("/voiceid")
+def scam_voices():
+    """Community list of confirmed scam voices (IDs, how many calls / numbers / families - no audio)."""
+    return {"voices": voice_id.all_voices(), "match_threshold": voice_id.MATCH}
+
+
+@router.get("/voiceid/{vid}")
+def scam_voice(vid: str):
+    v = voice_id.get(vid)
+    if not v:
+        raise HTTPException(404, "Unknown Scam Voice ID")
+    return v
 
 
 class Block(BaseModel):

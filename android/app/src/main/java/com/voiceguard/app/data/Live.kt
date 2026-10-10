@@ -82,6 +82,7 @@ object Live {
             retry?.cancel()
             retry = scope.launch {
                 delay(3000)
+                ServerFinder.find()      // laptop moved / new Wi-Fi: find the server again (no cable needed)
                 synchronized(this@Live) { if (ws == null && wanted) connect() }
             }
         }

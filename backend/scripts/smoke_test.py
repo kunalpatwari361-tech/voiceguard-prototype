@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 import os  # noqa: E402
 
 os.environ["VG_WARMUP"] = "0"
+os.environ["VG_DISCOVERY"] = "0"           # no Wi-Fi discovery thread in tests
 import tempfile  # noqa: E402
 TMP = Path(tempfile.mkdtemp())
 os.environ["VG_DB"] = str(TMP / "test.db")  # never touch the real database
@@ -279,6 +280,32 @@ with TestClient(app) as c:
     check("evidence hidden from outsiders", c.get(f"/api/evidence/{ev['id']}", headers=hm).status_code == 403)
     check("family calls cyber cell", c.post("/api/evidence/cyber-cell", json={"user_id": papa["id"], "evidence_id": ev["id"]}, headers=hp).status_code == 200)
 
+    # Reverse Engineering verdict (all models combined) + Scam Voice ID (calls linked by voice, not number)
+    rev = a["reverse_engineering"]
+    check("reverse engineering combines the models", rev["kind"] != "human" and len(rev["evidence"]) >= 2
+          and "AI-voice detector" in rev["models"], f"{rev['label']} ({rev['confidence']}) via {', '.join(rev['models'])}")
+    check("source tracer names the generator", a["source_trace"]["likely"] is not None,
+          f"{a['source_trace']['label']} [{a['source_trace']['model']}]")
+    rep = c.post("/api/scamlist/report", json={"number": sc["number"], "reason": "fake Rahul accident call"}, headers=hp).json()
+    vid = rep.get("voice_id") or {}
+    check("report saves the caller's Scam Voice ID", vid.get("saved") and vid.get("id", "").startswith("SV-"), vid.get("en", ""))
+    y4 = load_audio((ROOT / "demo_audio" / sc["turns"][3]["phone"]).read_bytes())   # same AI voice, a turn not heard yet
+    mm = c.post("/api/analyze", files={"file": ("n.wav", to_wav_bytes(y4))}, data={
+        "user_id": mummy["id"], "number": "+919000000777", "source": "voice_note", "skip_asr": "true"}, headers=hm).json()
+    mv = mm.get("voice_id") or {}
+    check("same scam voice recognised from a NEW number, other family",
+          mv.get("id") == vid.get("id") and any(x["key"] == "scam_voice" for x in mm["risk"]["reasons"]),
+          f"similarity {mv.get('similarity')}, risk {mm['risk']['score']} {mm['risk']['level']}")
+    c.post("/api/scamlist/report", json={"number": "+919000000777", "reason": "same voice, new number"}, headers=hm)
+    v0 = next((v for v in c.get("/api/voiceid", headers=hp).json()["voices"] if v["id"] == vid.get("id")), {})
+    check("scam voice links calls, numbers and families", v0.get("calls", 0) >= 2 and v0.get("families", 0) >= 2
+          and {"+919000000101", "+919000000777"} <= set(v0.get("numbers", [])), f"calls={v0.get('calls')} numbers={v0.get('numbers')}")
+    page = c.get(f"/api/evidence/{ev['id']}/report.html?token={tok_p}").text
+    check("evidence report shows how the voice was made + Scam Voice ID", vid.get("id", "#") in page and "How the voice was made" in page)
+    rr = c.post("/api/analyze", files={"file": ("r.wav", to_wav_bytes(real_y))}, data={
+        "user_id": papa["id"], "source": "voice_note", "skip_asr": "true"}, headers=hp).json()
+    check("real voice not matched to any scam voice", not rr.get("voice_id"), str(rr.get("voice_id")))
+
     # Future features
     check("bank API holds payment", c.post("/api/v1/enterprise/transaction-check", headers={"X-API-Key": "demo-bank-key"},
                                            json={"customer_phone": "9876500001", "amount": 50000}).json()["action"] == "hold")
@@ -292,6 +319,18 @@ with TestClient(app) as c:
     det = c.post("/api/future/voice-shield/detect", data={"user_id": papa["id"]}, files={"file": ("v.wav", prot)}, headers=hp).json()
     det2 = c.post("/api/future/voice-shield/detect", data={"user_id": rahul["id"]}, files={"file": ("v.wav", prot)}, headers=hr).json()
     check("voice shield watermark", det["watermark_found"] and not det2["watermark_found"], f"z={det['z_score']} other={det2['z_score']}")
+
+    # risk fusion: a very sure AI voice is not averaged away by "no scam words"; family proof still decides
+    from app.ai.risk import fuse
+    sure_ai = fuse({"deepfake": 0.97, "scam_words": 0.05, "fingerprints": 0.3})
+    check("very sure AI voice stays danger without scam words", sure_ai["level"] == "danger", f"score={sure_ai['score']}")
+    likely_ai = fuse({"deepfake": 0.75, "scam_words": 0.05, "fingerprints": 0.2})
+    check("likely AI voice is at least caution", likely_ai["level"] != "safe", f"score={likely_ai['score']}")
+    real_voice = fuse({"deepfake": 0.03, "scam_words": 0.05, "fingerprints": 0.3})
+    check("real voice with no scam words is safe", real_voice["level"] == "safe", f"score={real_voice['score']}")
+    confirmed = fuse({"deepfake": 0.97, "really_calling": "yes"})
+    check("family's own confirmation still overrides the AI verdict", confirmed["level"] == "safe", f"score={confirmed['score']}")
+
     alerts = c.get(f"/api/alerts/{rahul['id']}", headers=hr).json()
     check("alerts feed", len(alerts) >= 2, f"{len(alerts)} alerts")
     r = c.post("/api/alerts", json={"from_user_id": papa["id"], "kind": "scam_call", "title": "t"}, headers=hp).json()

@@ -47,6 +47,7 @@ import androidx.navigation.NavHostController
 import com.voiceguard.app.data.Api
 import com.voiceguard.app.data.Live
 import com.voiceguard.app.data.Prefs
+import com.voiceguard.app.data.ServerFinder
 import com.voiceguard.app.data.Sync
 import com.voiceguard.app.data.asObj
 import com.voiceguard.app.data.json
@@ -69,6 +70,10 @@ fun SetupScreen(onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     var step by remember { mutableIntStateOf(if (Prefs.registered) 2 else 0) }
     var server by remember { mutableStateOf(Prefs.serverUrl) }
+    var serverTyped by remember { mutableStateOf(Prefs.serverUrl) }   // what the field held before any auto-find
+    LaunchedEffect(Unit) {   // show the address VoiceGuard found by itself (Wi-Fi / USB)
+        ServerFinder.found.collect { f -> if (f != null && server == serverTyped) { server = f; serverTyped = f } }
+    }
     var name by remember { mutableStateOf(Prefs.name.orEmpty()) }
     var phone by remember { mutableStateOf(Prefs.phone.orEmpty()) }
     var role by remember { mutableStateOf(if (Prefs.registered) Prefs.role ?: "parent" else "parent") }
@@ -110,7 +115,7 @@ fun SetupScreen(onDone: () -> Unit) {
 
     /** Ask the server to send a 6-digit code to this number (SMS, or the laptop window in demo mode). */
     fun sendOtp() {
-        Prefs.serverUrlRaw = server.trim()
+        if (server.trim() != serverTyped) Prefs.serverUrlRaw = server.trim()   // only an address the user typed
         scope.launch {
             busy = "…"; err = null
             runCatching { Api.post("/api/auth/otp/start", json("phone" to phone)).asObj() }
@@ -130,9 +135,10 @@ fun SetupScreen(onDone: () -> Unit) {
 
         Section(tr("1. Server", "1. सर्वर"), Icons.Default.Dns) {
             OutlinedTextField(server, { server = it }, label = { Text("Server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Text(tr("USB: keep 127.0.0.1:8000 and run 'adb reverse'. Wi-Fi: use the laptop's IP.", "USB: 127.0.0.1:8000 रखें। Wi-Fi: लैपटॉप का IP डालें।"), color = VG.muted)
+            Text(tr("Leave it as it is: VoiceGuard finds the laptop server by itself on the same Wi-Fi (or USB).",
+                "इसे वैसा ही रहने दें: VoiceGuard उसी Wi-Fi (या USB) पर लैपटॉप सर्वर अपने आप ढूंढ लेता है।"), color = VG.muted)
             SmallButton(tr("Test connection", "कनेक्शन जाँचें")) {
-                Prefs.serverUrlRaw = server.trim()
+                if (server.trim() != serverTyped) Prefs.serverUrlRaw = server.trim()
                 scope.launch {
                     err = null; health = null
                     runCatching { Api.get("/api/health").asObj() }

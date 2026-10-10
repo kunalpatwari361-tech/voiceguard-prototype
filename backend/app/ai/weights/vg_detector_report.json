@@ -1,84 +1,123 @@
 {
  "layers": [
+  1,
   2,
   3,
   4,
   5,
-  6
+  6,
+  7,
+  8
  ],
- "C": 0.01,
- "auc_all": 0.9975,
- "clips": 2551,
+ "C": 0.003,
+ "auc_all": 0.9875,
+ "clips": 3837,
  "by_condition": {
   "clean": {
-   "auc": 0.9996,
-   "acc": 0.9917
+   "auc": 0.9985,
+   "acc": 0.9795
   },
   "g711": {
-   "auc": 0.998,
-   "acc": 0.9793
+   "auc": 0.9966,
+   "acc": 0.968
   },
   "lowbit_loss": {
-   "auc": 0.9928,
-   "acc": 0.9647
+   "auc": 0.9886,
+   "acc": 0.9411
   },
   "opus_wa": {
-   "auc": 0.9991,
-   "acc": 0.9855
+   "auc": 0.9956,
+   "acc": 0.9654
   },
   "phone_opus": {
-   "auc": 0.9951,
-   "acc": 0.9585
+   "auc": 0.9954,
+   "acc": 0.9603
+  },
+  "speaker": {
+   "auc": 0.9017,
+   "acc": 0.8233
   }
  },
  "by_source": {
   "fleurs": {
-   "n": 1185,
-   "acc": 0.9738
+   "n": 2010,
+   "acc": 0.9343
+  },
+  "gtts": {
+   "n": 540,
+   "acc": 0.9648
+  },
+  "librispeech": {
+   "n": 120,
+   "acc": 0.8333
   },
   "mms_tts": {
-   "n": 270,
-   "acc": 0.9963
+   "n": 372,
+   "acc": 0.9812
+  },
+  "neural_tts": {
+   "n": 354,
+   "acc": 0.9802
   },
   "sapi": {
-   "n": 120,
-   "acc": 1.0
+   "n": 108,
+   "acc": 0.9815
   },
   "vocoder_hifigan": {
-   "n": 835,
-   "acc": 0.9689
+   "n": 1182,
+   "acc": 0.9188
   }
  },
  "by_language": {
+  "bn": {
+   "n": 366,
+   "acc": 0.9699,
+   "real_kept_as_real": 0.9333
+  },
   "en": {
-   "n": 675,
-   "acc": 0.9881,
-   "real_kept_as_real": 0.9857
+   "n": 1452,
+   "acc": 0.9483,
+   "real_kept_as_real": 0.9424
+  },
+  "gu": {
+   "n": 246,
+   "acc": 0.9309,
+   "real_kept_as_real": 0.9444
   },
   "hi": {
-   "n": 870,
-   "acc": 0.9621,
-   "real_kept_as_real": 0.9506
+   "n": 1146,
+   "acc": 0.9206,
+   "real_kept_as_real": 0.9078
+  },
+  "kn": {
+   "n": 168,
+   "acc": 0.9345,
+   "real_kept_as_real": 0.9211
+  },
+  "ml": {
+   "n": 144,
+   "acc": 0.9792,
+   "real_kept_as_real": 0.9778
   },
   "mr": {
-   "n": 195,
-   "acc": 0.9949,
-   "real_kept_as_real": 0.9913
+   "n": 384,
+   "acc": 0.9583,
+   "real_kept_as_real": 0.9444
   },
   "pa": {
-   "n": 230,
-   "acc": 0.9609,
-   "real_kept_as_real": 0.9742
+   "n": 252,
+   "acc": 0.9087,
+   "real_kept_as_real": 0.88
   },
   "ta": {
-   "n": 270,
-   "acc": 0.9815,
-   "real_kept_as_real": 0.9871
+   "n": 258,
+   "acc": 0.9225,
+   "real_kept_as_real": 0.9318
   },
   "te": {
-   "n": 170,
-   "acc": 0.9882,
-   "real_kept_as_real": 0.9895
+   "n": 270,
+   "acc": 0.9407,
+   "real_kept_as_real": 0.9345
   }
  }
 }

@@ -24,12 +24,14 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from app import config  # noqa: E402,F401
+from app.ai import models  # noqa: E402
 from app.ai.audio_io import load_audio  # noqa: E402
 from app.ai.phone_channel import codec_roundtrip, phone_channel  # noqa: E402
 from app.ai.pipeline import analyze_voice  # noqa: E402
 
 SR = 16000
 DATA = Path(r"K:\vgtools\data")
+EVAL = Path(r"K:\vgtools\eval")
 
 
 def speaker_capture(y: np.ndarray, seed: int) -> np.ndarray:
@@ -68,11 +70,15 @@ def unseen_real(per_lang: int = 4) -> list[tuple[str, Path]]:
     used = {Path(r["path"]).stem.split("_", 2)[-1] for r in csv.DictReader(open(DATA / "vgset" / "manifest.csv", encoding="utf-8"))}
     out = [(f"en-ext {Path(p).stem}", Path(p)) for p in sorted(glob.glob(r"K:\vgtools\eval\real\*.*")) if not p.endswith(".parquet")]
     rnd = random.Random(5)
-    test_hi = sorted((DATA / "fleurs" / "hi_in_test").rglob("*.wav"))
+    # only clips that are NOT in the training set (add_languages.py trained on half of hi_in_test)
+    test_hi = [p for p in sorted((DATA / "fleurs" / "hi_in_test").rglob("*.wav")) if p.stem not in used]
     out += [(f"hi-test {p.stem[:10]}", p) for p in rnd.sample(test_hi, min(2 * per_lang, len(test_hi)))]
-    for lang in ("mr_in", "ta_in", "te_in", "pa_in"):
+    for lang in ("mr_in", "ta_in", "te_in", "pa_in", "bn_in", "gu_in", "kn_in", "ml_in", "en_us_test"):
         free = [p for p in sorted((DATA / "fleurs" / lang).rglob("*.wav")) if p.stem not in used]
-        out += [(f"{lang[:2]}-dev {p.stem[:10]}", p) for p in rnd.sample(free, min(per_lang, len(free)))]
+        out += [(f"{lang[:2]}-{'test' if 'test' in lang else 'dev'} {p.stem[:10]}", p)
+                for p in rnd.sample(free, min(per_lang, len(free)))]
+    held = sorted((EVAL / "libri_heldout").glob("*.flac"))   # LibriSpeech speakers kept out of training
+    out += [(f"libri {p.stem}", p) for p in rnd.sample(held, min(2 * per_lang, len(held)))]
     return out
 
 
@@ -86,9 +92,18 @@ def unseen_fake(neural: Path | None) -> list[tuple[str, Path]]:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--neural", type=Path, default=None, help="folder of extra AI clips (e.g. modern neural TTS)")
+    ap.add_argument("--neural", type=Path, default=EVAL / "neural",
+                    help="folder of held-out AI clips (voices never used for training)")
     ap.add_argument("--conds", default=",".join(CONDS), help="only these conditions, e.g. speaker")
+    ap.add_argument("--weights", type=Path, help="detector weights to test instead of the deployed vg_detector.npz")
+    ap.add_argument("--room-weights", type=Path, help="room detector weights instead of vg_detector_room.npz")
     a = ap.parse_args()
+    if a.weights:
+        models.WEIGHTS = a.weights
+    if a.room_weights:
+        models.ROOM_WEIGHTS = a.room_weights
+    if a.neural and not a.neural.exists():
+        a.neural = None
     for c in [c for c in CONDS if c not in a.conds.split(",")]:
         CONDS.pop(c)
     sets = {"real": unseen_real(), "ai": unseen_fake(a.neural)}
@@ -117,6 +132,12 @@ def main():
               f"            | {lv(ai, 'danger')}/{lv(ai, 'caution')}/{lv(ai, 'safe')}"
               f"                      | {sum(r[3] >= 0.5 for r in re):2d}/{len(re):2d} ({100 * np.mean([r[3] >= 0.5 for r in re]):3.0f}%)"
               f"             | {lv(re, 'danger')}/{lv(re, 'caution')}/{lv(re, 'safe')}")
+    print("\ndetector sureness (share of clips at or above each AI-voice probability):")
+    for cond in CONDS:
+        ai = np.array([r[3] for r in rows if r[0] == "ai" and r[2] == cond and r[3] is not None])
+        re = np.array([r[3] for r in rows if r[0] == "real" and r[2] == cond and r[3] is not None])
+        print(f"  {cond:9s} " + "  ".join(f">={t:.1f}: AI {100 * np.mean(ai >= t):3.0f}% / real {100 * np.mean(re >= t):3.0f}%"
+                                         for t in (0.5, 0.7, 0.8, 0.9)))
     print("\nmistakes:")
     for r in rows:
         if r[3] is None:
