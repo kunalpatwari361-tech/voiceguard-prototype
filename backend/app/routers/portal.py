@@ -986,3 +986,50 @@ def network(days: int = 7, ctx: P.Ctx = Depends(P.need("network")), s: Session =
                        "api_success": round(good / (good + bad), 4) if good + bad else None})
     P.audit(s, ctx.m, "opened network page", f"{days} days", ip=ctx.ip)
     return {"days": days, "operators": out, "phones": phones, "time": iso(t)}
+
+
+# ------------------------------------------------------------------ Family Safety: service health only
+def family_safety_health_data(s: Session) -> dict:
+    """Operations view for the team: counts and health only. No names, no locations, no way to switch anyone's
+    sharing on - the portal cannot see or override a member's location."""
+    import time
+    from .. import family_safety as fs
+    from ..hub import hub
+    t = now()
+    day = t - dt.timedelta(days=1)
+    hb = fs.worker_state["heartbeat"]
+    consents = s.exec(select(fs.FsConsent).where(fs.FsConsent.revoked_at == None)).all()   # noqa: E711
+    sharing = {r.user_id: r for r in s.exec(select(fs.FsSharing)).all()}
+    paused = sum(1 for c in consents if (sh := sharing.get(c.user_id)) and sh.consent_id == c.id and sh.paused)
+    dels = s.exec(select(fs.FsDelivery).join(fs.FsEvent, fs.FsEvent.id == fs.FsDelivery.event_id).where(fs.FsEvent.created_at > day)).all()
+    waiting = [d for d in dels if d.status in ("pending", "sent") and d.next_attempt_at is not None]
+    oldest = min((fs.aware(s.get(fs.FsEvent, d.event_id).created_at) for d in waiting), default=None)
+    evs = s.exec(select(fs.FsEvent).where(fs.FsEvent.created_at > day)).all()
+    hour_fail = collections.Counter(k for at, k in fs.recent_failures if time.time() - at < 3600)
+    accepted = fs.stats.get("location_accepted", 0)
+    rejected = sum(v for k, v in fs.stats.items() if k.startswith("location_rejected") or k == "location_rate_limited")
+    return {
+        "enabled": fs.ENABLED,
+        "worker": {"running": bool(hb and time.time() - hb < 60), "last_heartbeat_s": round(time.time() - hb) if hb else None,
+                   "errors": fs.worker_state["errors"]},
+        "consent": {"active": len(consents), "paused": paused, "families": len({c.family_id for c in consents}),
+                    "granted_24h": s.exec(select(func.count()).select_from(fs.FsConsent).where(fs.FsConsent.granted_at > day)).one(),
+                    "revoked_24h": s.exec(select(func.count()).select_from(fs.FsConsent).where(fs.FsConsent.revoked_at > day)).one()},
+        "ingestion": {"accepted": accepted, "rejected": rejected,
+                      "error_rate": round(rejected / (accepted + rejected), 4) if accepted + rejected else None,
+                      "by_reason": {k: v for k, v in fs.stats.items() if k.startswith(("location_", "geofence_"))}},
+        "realtime": {"map_watchers": sum(len(fs.watchers(f)) for f in list(fs._watchers)), "phones_online": sum(1 for v in hub.conns.values() if v),
+                     "sent": fs.stats.get("realtime_sent", 0), "failed": fs.stats.get("realtime_failed", 0)},
+        "deliveries_24h": dict(collections.Counter(d.status for d in dels)),
+        "queue": {"waiting": len(waiting), "oldest_wait_s": round((t - oldest).total_seconds()) if oldest else None},
+        "events_24h": dict(collections.Counter(e.kind for e in evs)),
+        "sos": {"active": sum(1 for e in evs if e.kind == "sos" and e.status == "active"), "last_24h": sum(1 for e in evs if e.kind == "sos")},
+        "authorization_denied": fs.stats.get("authz_denied", 0), "invalid_invites": fs.stats.get("invite_invalid", 0),
+        "failures_last_hour": dict(hour_fail), "counters_since_start": dict(fs.stats),
+    }
+
+
+@router.get(A + "/family-safety")
+def family_safety_health(ctx: P.Ctx = Depends(P.need("family")), s: Session = Depends(get_session)):
+    P.audit(s, ctx.m, "opened family safety health", ip=ctx.ip)
+    return family_safety_health_data(s)

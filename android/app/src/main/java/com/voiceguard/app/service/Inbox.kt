@@ -45,8 +45,10 @@ object Inbox {
             }
             "scamlist_updated" -> Sync.lists()
             "family_updated" -> runCatching { Sync.family() }
+            "family_safety_removed", "family_safety_event" -> com.voiceguard.app.familysafety.FamilySafety.onEvent(ctx, e)
             "alert" -> {
                 val a = e.obj("alert")
+                com.voiceguard.app.familysafety.FamilySafety.onAlert(a)   // Family Safety: tell the server this phone got it
                 val p = a.obj("payload")
                 // where the sender's phone is (added by the server when known)
                 val loc = p.obj("location")

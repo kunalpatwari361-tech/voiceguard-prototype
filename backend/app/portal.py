@@ -25,12 +25,12 @@ from . import config, security as sec
 from .ai.number_info import normalize
 from .db import engine, get_session, now
 
-_ALL = {"dashboard", "fraud", "evidence", "telecom", "network", "ai", "security", "team", "audit", "reports", "logs", "pii"}
+_ALL = {"dashboard", "fraud", "evidence", "telecom", "network", "ai", "security", "family", "team", "audit", "reports", "logs", "pii"}
 ROLES = {   # reports: everyone, but each part of a report only for the roles that may open that section
     "owner": set(_ALL),
     "admin": set(_ALL),
     "fraud_analyst": {"dashboard", "fraud", "evidence", "telecom", "network", "reports", "logs", "pii"},
-    "security": {"dashboard", "security", "telecom", "network", "audit", "reports", "logs"},
+    "security": {"dashboard", "security", "family", "telecom", "network", "audit", "reports", "logs"},
     "ai_engineer": {"dashboard", "ai", "network", "reports", "logs"},
     "viewer": {"dashboard", "reports"},
 }

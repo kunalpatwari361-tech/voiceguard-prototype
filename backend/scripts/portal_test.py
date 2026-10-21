@@ -304,6 +304,11 @@ with TestClient(app) as c:
     c.post("/api/portal/security/lockdown", json={"on": False}, headers=ho)
     check("lockdown lifted", c.get("/api/demo/clips").status_code == 200)
 
+    # ---- Family Safety health (numbers only)
+    fsh = c.get("/api/portal/family-safety", headers=ho)
+    check("portal: Family Safety health for owner", fsh.status_code == 200 and "consent" in fsh.json() and "worker" in fsh.json())
+    check("portal: viewer cannot open Family Safety health", c.get("/api/portal/family-safety", headers=hv).status_code == 403)
+
     # ---- lock-out after wrong codes, unlock by the owner
     for _ in range(P.LOCK_AFTER):
         c.post("/api/portal/login/verify", json={"phone": "9876533003", "otp": "333333", "code": code("9876533003", wrong=True)},

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Call
@@ -90,6 +91,8 @@ fun FamilyScreen(nav: NavHostController, back: (() -> Unit)?) {
         IconButton({ scope.launch { refresh() } }) { Icon(Icons.Default.Refresh, null) }
     }) {
         InvitesCard { fam = it }
+        Tile(Icons.Default.Shield, tr("Family Safety", "परिवार सुरक्षा"), tr("Live map, SOS, safe zones, arrival & battery alerts",
+            "लाइव नक्शा, SOS, सुरक्षित ज़ोन, पहुँच व बैटरी सूचना"), VG.red, Modifier.fillMaxWidth()) { nav.navigate("familysafety") }
         if (Prefs.familyId == null) {
             NoFamilyPanel { fam = it }
             return@Screen

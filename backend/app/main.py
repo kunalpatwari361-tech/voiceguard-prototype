@@ -17,9 +17,10 @@ from .ai import models
 from .db import LocationOptOut, Session, User, engine, init_db, now
 from .hub import hub
 from .auth import user_for_token
-from . import daily_report, discovery, live_location, portal, push, security
+from . import daily_report, discovery, family_safety, live_location, portal, push, security
 from .routers import admin_console, app_reports, auth_routes, caller_identity, checks, evidence, future, hdcall, people, push_routes, verify
 from .routers import portal as portal_routes
+from .routers import family_safety as family_safety_routes   # Family Safety add-on (VG_FAMILY_SAFETY)
 from .routers.common import iso
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI):
     init_db()
     portal.ensure_owners()                       # team portal owners from VG_PORTAL_OWNERS / VG_ADMIN_PHONES
     security.start(asyncio.get_running_loop())   # castle security: watchtower + integrity baseline
+    family_safety.start()                        # Family Safety: alert retries + retention (off with VG_FAMILY_SAFETY=0)
     daily_report.start()                         # team portal: yesterday's report built just after midnight (IST)
     discovery.start()
     if config.WARMUP_MODELS:
@@ -44,7 +46,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.add_middleware(security.SecurityGate)   # outermost: the seven security layers see every request first
 for r in (auth_routes.router, push_routes.router, people.router, checks.router, verify.router, hdcall.router,
           evidence.router, future.router, caller_identity.router, admin_console.router, app_reports.router,
-          portal_routes.router):   # caller_identity: isolated add-on
+          portal_routes.router, family_safety_routes.router):   # caller_identity: isolated add-on
     app.include_router(r)
 
 demo_dir = config.BASE_DIR / "demo_audio"

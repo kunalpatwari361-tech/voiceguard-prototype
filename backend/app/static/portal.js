@@ -174,7 +174,7 @@
   // ---------------------------------------------------------------- shell
   const SECTIONS = [
     ["dashboard", "Dashboard", "▦"], ["fraud", "Fraud & scams", "⚠"], ["evidence", "Evidence", "🗂"],
-    ["telecom", "Telecom data", "📡"], ["network", "Network", "📶"], ["ai", "AI models", "◈"], ["security", "Security", "🏰"],
+    ["telecom", "Telecom data", "📡"], ["network", "Network", "📶"], ["ai", "AI models", "◈"], ["security", "Security", "🏰"], ["family", "Family safety", "🛟"],
     ["reports", "Daily reports", "📊"], ["logs", "Logs", "🧾"], ["team", "Team", "👥"], ["audit", "Audit log", "📜"], ["sessions", "My sessions", "🔑"],
   ];
   async function start(t) {
@@ -591,6 +591,34 @@
   async function incident(id, action) {
     try { await api(`/security/incidents/${id}/${action}`, { method: "POST" }); render(); } catch (e) { toast(e.message, true); }
   }
+
+  // ---- family safety: service health only (no names, no locations, no way to change anyone's sharing)
+  VIEWS.family = async () => {
+    const d = await api("/family-safety");
+    const kv = (obj, label) => table([[label, (r) => r[0].replace(/_/g, " ")], ["Count", (r) => r[1], "num"]], Object.entries(obj || {}));
+    const w = d.worker;
+    return [
+      h("div", { class: "grid" },
+        stat("Feature", d.enabled ? "On" : "Off", d.enabled ? "VG_FAMILY_SAFETY=1" : "switched off (VG_FAMILY_SAFETY=0)", d.enabled ? "good" : "warn"),
+        stat("Background worker", w.running ? "Running" : "Not running", w.last_heartbeat_s === null ? "no heartbeat yet" : `last beat ${w.last_heartbeat_s} s ago · ${w.errors} error(s)`,
+          w.running ? "good" : "bad"),
+        stat("Members sharing", num(d.consent.active), `${d.consent.paused} paused · ${d.consent.families} famil${d.consent.families === 1 ? "y" : "ies"}`),
+        stat("Consent (24 h)", `+${d.consent.granted_24h} / -${d.consent.revoked_24h}`, "granted / revoked"),
+        stat("Location updates", num(d.ingestion.accepted), `${num(d.ingestion.rejected)} refused · error rate ${d.ingestion.error_rate === null ? "—" : pct(d.ingestion.error_rate)}`,
+          (d.ingestion.error_rate || 0) > 0.2 ? "warn" : ""),
+        stat("Active SOS", num(d.sos.active), `${d.sos.last_24h} in the last 24 h`, d.sos.active ? "bad" : ""),
+        stat("Alert queue", num(d.queue.waiting), d.queue.oldest_wait_s === null ? "nothing waiting" : `oldest waiting ${d.queue.oldest_wait_s} s`, d.queue.waiting > 20 ? "warn" : ""),
+        stat("Realtime", `${d.realtime.map_watchers} watching`, `${d.realtime.phones_online} phones online · ${d.realtime.failed} failed sends`, d.realtime.failed ? "warn" : ""),
+        stat("Refused access", num(d.authorization_denied), `${d.invalid_invites} invalid invitation code(s)`, d.authorization_denied ? "warn" : "")),
+      h("div", { class: "grid two" },
+        card("Alert deliveries (24 h)", kv(d.deliveries_24h, "Status"),
+          h("p", { class: "muted small", text: "sent = handed to the phone's live link or push · delivered = the phone confirmed · unconfirmed = SOS never confirmed after all retries · failed = phone could not be reached" })),
+        card("Safety events (24 h)", kv(d.events_24h, "Kind")),
+        card("Location updates refused, by reason (since start)", kv(d.ingestion.by_reason, "Reason")),
+        card("Failures in the last hour", kv(d.failures_last_hour, "Kind"))),
+      card("", h("p", { class: "muted", text: "Privacy: this page shows numbers only. The team cannot see anyone's location here, cannot turn anyone's sharing on, and every visit is written to the audit log." })),
+    ];
+  };
 
   // ---- network: how the app works on each operator
   const OP_CLASS = { Jio: "op-jio", Airtel: "op-airtel", Vi: "op-vi", BSNL: "op-bsnl", MTNL: "op-mtnl" };

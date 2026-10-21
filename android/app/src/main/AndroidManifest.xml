@@ -184,6 +184,19 @@
             android:name=".telecom.CallActionReceiver"
             android:exported="false" />
 
+        <!-- Family Safety: continuous location sharing while the member has it on (always-visible notification) -->
+        <service
+            android:name=".familysafety.FamilySafetyService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+        <receiver
+            android:name=".familysafety.FamilySafetyReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".service.BootReceiver"
             android:exported="false">

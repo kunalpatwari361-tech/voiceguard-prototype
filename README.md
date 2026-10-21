@@ -453,6 +453,7 @@ load (the window prints `AI models ready`). Once the models are downloaded the s
 | 30 | Voice Shield | Prototype (audio watermark) | `ai/voice_shield.py` |
 | 31 | Smart Learning (federated) | Simulation (FedAvg) | `app/training/federated.py` |
 | 32 | Bank and Enterprise APIs | Real REST API (demo key) | `routers/future.py` |
+| – | Family Safety & Live Location | Real (add-on, switch off with VG_FAMILY_SAFETY=0): consent-based continuous sharing with always-visible notification, live family map (live / stale / offline), SOS with delivery confirmation and retries, arrival alerts, safe zones with hysteresis, low-battery alerts, expiring invitations, remove / leave. See [docs/family-safety.md](docs/family-safety.md) | `app/family_safety.py`, `routers/family_safety.py`, `familysafety/` |
 | – | Team Portal (confidential) | Real: team-only web portal at `/portal` – SMS code + authenticator app sign-in, roles, AI models (test, switch, roll back), security & lockdown, evidence cases, telecom keys and data, fraud numbers, audit log. See [docs/portal.md](docs/portal.md) | `app/portal.py`, `routers/portal.py`, `static/portal.*` |
 
 \* Android 10+ does not let normal apps record phone-call audio. The app tries speaker-mode recording and tells

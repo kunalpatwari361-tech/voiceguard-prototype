@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
             i.getStringExtra("nav") == "number" -> pending.value = "number/" + Uri.encode(i.getStringExtra("number"))
             i.getStringExtra("nav") == "alerts" -> pending.value = "alerts"
             i.getStringExtra("nav") == "family" -> pending.value = "family"
+            i.getStringExtra("nav") == "familysafety" -> pending.value = "familysafety"
             i.getStringExtra("nav") == "sms" && i.getStringExtra("address") != null ->
                 pending.value = "sms/" + Uri.encode(i.getStringExtra("address"))
             i.getStringExtra("nav") == "hdcall" && i.getStringExtra("peer_id") != null ->
@@ -124,5 +125,6 @@ fun AppNav(nav: NavHostController, start: String) {
         composable("future") { FutureLabScreen(back) }
         composable("settings") { SettingsScreen(nav, back) }
         composable("callerid") { com.voiceguard.app.callerid.CallerIdentityScreen(back) }
+        composable("familysafety") { com.voiceguard.app.familysafety.FamilySafetyScreen(back) }   // Family Safety add-on
     }
 }
