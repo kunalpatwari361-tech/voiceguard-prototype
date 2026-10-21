@@ -349,7 +349,7 @@ fun Avatar(name: String, size: androidx.compose.ui.unit.Dp, color: Color, family
         }
         if (family) Box(Modifier.align(Alignment.BottomEnd).size(size * 0.36f).clip(CircleShape).background(VG.green),
             contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.Shield, null, tint = Color.Black, modifier = Modifier.size(size * 0.24f))
+            Icon(Icons.Default.Shield, null, tint = VG.onAccent(VG.green), modifier = Modifier.size(size * 0.24f))
         }
     }
 }

@@ -16,6 +16,7 @@ import os  # noqa: E402
 
 os.environ["VG_WARMUP"] = "0"
 os.environ["VG_DISCOVERY"] = "0"           # no Wi-Fi discovery thread in tests
+os.environ["VG_DAILY_REPORT"] = "0"        # no daily report thread in tests
 import tempfile  # noqa: E402
 TMP = Path(tempfile.mkdtemp())
 os.environ["VG_DB"] = str(TMP / "test.db")  # never touch the real database
@@ -221,6 +222,37 @@ with TestClient(app) as c:
     rl = [m for m in fam["members"] if m["id"] == rahul["id"]][0]
     check("family location", rl["location"]["place"] == "Kothrud, Pune")
 
+    # Live Location: Papa opens the live map; Rahul's phone is told who is watching, and each fix reaches Papa at once
+    def recv_type(ws, kind, limit=6):
+        for _ in range(limit):
+            m = ws.receive_json()
+            if m.get("type") == kind:
+                return m
+        return None
+
+    with c.websocket_connect(f"/ws/{rahul['id']}?token={tok_r}") as rws, c.websocket_connect(f"/ws/{papa['id']}?token={tok_p}") as pws:
+        lv = c.post("/api/location/live/start", json={"target_id": rahul["id"], "minutes": 5}, headers=hp).json()
+        told = recv_type(rws, "location_live")
+        check("live location: watched phone is told who is watching", told is not None and told["from"]["name"] == "Papa"
+              and lv["seconds"] > 250 and lv["interval_s"] == 15)
+        rws.send_json({"type": "location", "lat": 18.51, "lon": 73.86, "accuracy": 8, "place": "Kothrud, Pune", "battery": 64})
+        fl = recv_type(pws, "family_location")
+        check("live location: each fix reaches the watcher at once",
+              fl is not None and fl["user_id"] == rahul["id"] and fl["location"]["battery"] == 64)
+        c.post("/api/location/live/end", headers=hr)
+        check("watched person can stop sharing at any time", recv_type(pws, "location_live_ended") is not None)
+    check("outsider cannot watch live location -> 403",
+          c.post("/api/location/live/start", json={"target_id": rahul["id"]}, headers=hm).status_code == 403)
+    c.post("/api/me/location-sharing", json={"share": False}, headers=hr)
+    off = [m for m in c.get(f"/api/family/{fam['id']}", headers=hp).json()["members"] if m["id"] == rahul["id"]][0]
+    check("location sharing off: nothing shown, live map refused", off["location"] is None and
+          c.post("/api/location/live/start", json={"target_id": rahul["id"]}, headers=hp).status_code == 403)
+    c.post("/api/me/location-sharing", json={"share": True}, headers=hr)
+    with c.websocket_connect(f"/ws/{rahul['id']}?token={tok_r}") as rws:   # turning it off erased the old fix
+        rws.send_json({"type": "location", "lat": 18.52, "lon": 73.85, "place": "Kothrud, Pune"})
+        rws.send_json({"type": "ping"})
+        recv_type(rws, "pong")
+
     # Number info + community list
     ni = c.get("/api/numbers/+919000000101", headers=hp).json()
     check("number info (community reports)", ni["community_reports"] >= 2 and ni["spam_score"] > 0.6, f"score={ni['spam_score']}")
@@ -228,6 +260,20 @@ with TestClient(app) as c:
     c.post("/api/blocked", json={"user_id": rahul["id"], "number": "9000000199"}, headers=hr)
     ni = c.get("/api/numbers/9000000199", headers=hp).json()
     check("family-shared block list", ni["spam_score"] >= 0.9)
+
+    # Caller ID + Verified badge: a VoiceGuard user outside the family shows by name, unless they hide it
+    ni = c.get("/api/numbers/9876500003", headers=hp).json()
+    check("caller ID shows a verified VoiceGuard user's name",
+          ni["name"] == "Mummy" and ni["verified"] and ni["name_source"] == "voiceguard" and ni["spam_score"] <= 0.1, str(ni.get("name")))
+    check("caller ID setting readable", c.get("/api/me/caller-id", headers=hm).json()["show_name"] is True)
+    c.post("/api/me/caller-id", json={"show_name": False}, headers=hm)
+    ni = c.get("/api/numbers/9876500003", headers=hp).json()
+    check("user can hide their caller ID name", ni["name"] is None and not ni["verified"])
+    c.post("/api/me/caller-id", json={"show_name": True}, headers=hm)
+    ni = c.get("/api/numbers/+919000000102", headers=hp).json()
+    check("reported number labelled by the community", (ni["label"] or "").startswith("Reported:"), ni["label"])
+    ni = c.get("/api/numbers/9876500002", headers=hp).json()
+    check("family member shows as verified family", ni["name"] == "Rahul" and ni["verified"] and ni["name_source"] == "family")
 
     # Full analysis of the demo AI scam call, claiming to be Rahul
     clips = json.loads((ROOT / "demo_audio" / "clips.json").read_text(encoding="utf-8"))
@@ -242,6 +288,10 @@ with TestClient(app) as c:
     print("   ai_voice:", a["ai_voice"]["fake_prob"], "| fp:", a["fingerprints"]["score"], "| vp:", a["voice_print"],
           "| words:", a["scam_words"]["rules"]["categories"], "| transcript:", a["transcript"]["text"][:80])
     check("demo scam call -> DANGER", a["risk"]["level"] == "danger", f"{a['risk']['score']}/100 in {time.time() - t0:.0f}s")
+    sm = a.get("summary") or {}
+    check("AI call summary in English and Hindi (no key needed)",
+          "Rahul" in sm.get("en", "") and "DANGER" in sm.get("en", "") and "खतरा" in sm.get("hi", "") and len(sm.get("points", [])) >= 3,
+          sm.get("en", "")[:110])
     check("cannot check against a stranger's voice -> 403", c.post("/api/analyze", files={"file": ("a.wav", to_wav_bytes(y))},
           data={"claimed_user_id": papa["id"], "skip_asr": "true"}, headers=hm).status_code == 403)
 

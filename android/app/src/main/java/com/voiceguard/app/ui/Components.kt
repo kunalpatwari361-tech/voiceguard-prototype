@@ -54,10 +54,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.voiceguard.app.data.I18n
 import com.voiceguard.app.data.Prefs
 
-/** Bilingual UI text: English by default, Hindi when the user switches language. */
-fun tr(en: String, hi: String) = if (Prefs.hindi) hi else en
+/** UI text in the chosen language: English and Hindi from the code, other Indian languages from assets/i18n (I18n). */
+fun tr(en: String, hi: String) = I18n.text(en, hi)
 
 fun toast(ctx: Context, msg: String) = Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
 
@@ -129,7 +130,7 @@ fun Tile(icon: ImageVector, title: String, subtitle: String? = null, color: Colo
 fun BigButton(text: String, icon: ImageVector? = null, color: Color = VG.green, enabled: Boolean = true,
               modifier: Modifier = Modifier.fillMaxWidth(), onClick: () -> Unit) {
     Button(onClick = onClick, enabled = enabled, modifier = modifier.height(52.dp), shape = RoundedCornerShape(14.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = if (color == VG.amber || color == VG.green) Color.Black else Color.White)) {
+        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = VG.onAccent(color))) {
         if (icon != null) { Icon(icon, null); Spacer(Modifier.width(8.dp)) }
         Text(text, fontWeight = FontWeight.SemiBold)
     }

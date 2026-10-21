@@ -12,6 +12,8 @@ import com.voiceguard.app.data.Sync
 import com.voiceguard.app.data.asObj
 import com.voiceguard.app.data.int
 import com.voiceguard.app.data.json
+import com.voiceguard.app.callerid.CallerIdentity
+import com.voiceguard.app.data.bool
 import com.voiceguard.app.data.num
 import com.voiceguard.app.data.objs
 import com.voiceguard.app.data.str
@@ -38,27 +40,29 @@ class ScreeningService : CallScreeningService() {
             return
         }
         val n = Numbers.normalize(details.handle?.schemeSpecificPart.orEmpty())
-        val blocked = n in Prefs.blockedNumbers
+        CallerIdentity.noteVerification(n, details)   // carrier number check for the Caller Identity card
+        com.voiceguard.app.service.AppStats.inc("calls_screened")
         val reported = n in Prefs.scamNumbers
+        val familyBlocked = n in Prefs.blockedNumbers
+        val autoBlocked = !familyBlocked && reported && Prefs.autoBlockScam   // Auto-Block Spam
         val resp = CallResponse.Builder()
-        if (blocked) {
+        if (familyBlocked || autoBlocked) {
             resp.setDisallowCall(true).setRejectCall(true).setSkipNotification(false)
-            Notify.spamWarning(this, n, "Blocked by your family. VoiceGuard rejected this call.")
+            Notify.spamWarning(this, n, if (familyBlocked) "Blocked by your family. VoiceGuard rejected this call."
+                else "Reported as SCAM by the VoiceGuard community. VoiceGuard declined this call for you.")
         }
         respondToCall(details, resp.build())
         RecentCalls.add(n)
-        if (blocked) return
+        if (autoBlocked) alertFamily(n, "got a call from a reported scam number - VoiceGuard blocked it")
+        if (familyBlocked || autoBlocked) com.voiceguard.app.service.AppStats.inc("auto_blocked")
+        if (familyBlocked || autoBlocked) return
 
-        // As the default Phone app our own call screen shows all of this; otherwise float a caller ID card.
-        val isDialer = getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_DIALER)
+        // Floating caller card: family / saved contact / unknown / suspicious / spam, over any screen while it rings
+        // (not over VoiceGuard's own call screen, which shows all of this itself).
         val family = Sync.memberByPhone(n)
         val contact = Contacts.nameFor(this, n)
-        if (!isDialer) when {
-            family != null -> CallerIdOverlay.show(this, family.str("name").orEmpty(), "Family · verified number", CallerIdOverlay.GREEN)
-            reported -> CallerIdOverlay.show(this, "⚠ Reported scam", "${Numbers.pretty(n)} · reported by the VoiceGuard community", CallerIdOverlay.RED)
-            contact != null -> CallerIdOverlay.show(this, contact, Numbers.pretty(n), CallerIdOverlay.GREEN)
-            else -> CallerIdOverlay.show(this, Numbers.pretty(n), "Unknown number · checking…", CallerIdOverlay.GREY)
-        }
+        val floating = { Prefs.floatingCard && !CallNotifier.uiVisible }
+        if (floating()) CallerIdOverlay.show(this, CallStatus.of(this, n))
         if (reported) {
             Notify.spamWarning(this, n, "Reported as SCAM by the VoiceGuard community. Do not share OTP or send money.")
             alertFamily(n, "is getting a call from a reported scam number")
@@ -68,12 +72,12 @@ class ScreeningService : CallScreeningService() {
             val info = withTimeoutOrNull(4000) { runCatching { Api.get("/api/numbers/$n?user_id=${Prefs.userId}").asObj() }.getOrNull() }
                 ?: return@launch
             RecentCalls.setInfo(n, info)
+            CallStatus.remember(n, info)
             val score = info.num("spam_score") ?: 0.0
             val flags = info.objs("flags").joinToString(" ") { it.str("en").orEmpty() }
-            if (!isDialer) CallerIdOverlay.show(this@ScreeningService,
-                if (score >= 0.5) "⚠ Likely spam · ${(score * 100).toInt()}%" else Numbers.pretty(n),
-                listOfNotNull(info.str("country"), flags.ifBlank { null }).joinToString(" · ").ifBlank { "Unknown number" },
-                when { score >= 0.6 -> CallerIdOverlay.RED; score >= 0.35 -> CallerIdOverlay.AMBER; else -> CallerIdOverlay.GREY })
+            // the server's answer (spam risk, VoiceGuard member name) updates the floating card and the call notification
+            if (floating()) CallerIdOverlay.show(this@ScreeningService, CallStatus.of(this@ScreeningService, n))
+            CallNotifier.update(this@ScreeningService)
             if (score >= 0.5 && !reported) {
                 Notify.spamWarning(this@ScreeningService, n, "Risk ${(score * 100).toInt()}%. $flags")
                 if (score >= 0.7) alertFamily(n, "is getting a call from a high-risk number")

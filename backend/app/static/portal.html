@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>VoiceGuard Team Portal</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/portal/app.css">
+</head>
+<body>
+<div class="confidential">CONFIDENTIAL · VoiceGuard team only · every action is recorded</div>
+
+<!-- sign-in -->
+<section id="login" class="login hidden">
+  <div class="login-card">
+    <div class="brand"><span class="shield" aria-hidden="true"></span><div><b>VoiceGuard</b><small>Team Portal</small></div></div>
+    <div id="step-phone">
+      <h1>Sign in</h1>
+      <p class="muted">Only VoiceGuard team members can sign in. Two steps: a code by SMS, then a code from your authenticator app.</p>
+      <label for="in-phone">Your phone number</label>
+      <input id="in-phone" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210">
+      <button id="btn-send" class="primary wide">Send SMS code</button>
+    </div>
+    <div id="step-codes" class="hidden">
+      <h1>Enter both codes</h1>
+      <p class="muted" id="sent-msg"></p>
+      <label for="in-otp">SMS code</label>
+      <input id="in-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 digits">
+      <label for="in-totp">Authenticator app code</label>
+      <input id="in-totp" inputmode="numeric" maxlength="6" placeholder="6 digits">
+      <p class="hint">First sign-in? Leave the authenticator code empty: you will set it up next.</p>
+      <button id="btn-verify" class="primary wide">Sign in</button>
+      <button id="btn-back" class="link">Use a different number</button>
+    </div>
+    <div id="step-setup" class="hidden">
+      <h1>Set up your authenticator</h1>
+      <ol class="steps">
+        <li>Open Google Authenticator, Microsoft Authenticator or any authenticator app on your phone.</li>
+        <li>Add an account and scan this code (or type the key below).</li>
+        <li>Type the 6-digit code it shows.</li>
+      </ol>
+      <div id="qr" class="qr"></div>
+      <p class="key">Can't scan? In the app choose <b>Enter a setup key</b>, type any account name, this key, and <b>Time based</b>:<br><code id="secret"></code></p>
+      <label for="in-confirm">Code from the app</label>
+      <input id="in-confirm" inputmode="numeric" maxlength="6" placeholder="6 digits">
+      <button id="btn-confirm" class="primary wide">Confirm and open the portal</button>
+    </div>
+    <p id="login-err" class="error" role="alert"></p>
+  </div>
+</section>
+
+<!-- portal -->
+<section id="app" class="app hidden">
+  <aside class="side">
+    <div class="brand"><span class="shield" aria-hidden="true"></span><div><b>VoiceGuard</b><small>Team Portal</small></div></div>
+    <nav id="nav"></nav>
+    <div class="who">
+      <div id="who-name"></div>
+      <small id="who-role"></small>
+      <button id="btn-logout" class="ghost wide">Sign out</button>
+    </div>
+  </aside>
+  <main>
+    <header class="top">
+      <button id="btn-menu" class="ghost menu" aria-label="Menu">☰</button>
+      <h2 id="title"></h2>
+      <span id="lock-banner" class="pill bad hidden">LOCKDOWN</span>
+      <span class="spacer"></span>
+      <small id="idle" class="muted"></small>
+      <button id="btn-refresh" class="ghost">Refresh</button>
+    </header>
+    <div id="view" class="view"></div>
+  </main>
+</section>
+
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <h3 id="modal-title"></h3>
+    <div id="modal-body"></div>
+    <div class="row end">
+      <button id="modal-cancel" class="ghost">Cancel</button>
+      <button id="modal-ok" class="primary">OK</button>
+    </div>
+  </div>
+</div>
+<div id="toast" class="toast hidden"></div>
+<script src="/portal/app.js"></script>
+</body>
+</html>

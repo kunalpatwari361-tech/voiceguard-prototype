@@ -17,12 +17,14 @@ object Notify {
     const val CH_ALERTS = "alerts"
     const val CH_URGENT = "urgent"
     const val CH_SPAM = "spam"
+    const val CH_LIVE = "live_location"
     const val ID_GUARD = 1
     const val ID_VERIFY = 10
     const val ID_HD = 11
     const val ID_PANIC = 12
     const val ID_CALLBACK = 13
     const val ID_INVITE = 14
+    const val ID_LIVE = 15
     private var nextId = 100
 
     fun createChannels(ctx: Context) {
@@ -31,6 +33,7 @@ object Notify {
         nm.createNotificationChannel(NotificationChannel(CH_ALERTS, "Family alerts", NotificationManager.IMPORTANCE_HIGH))
         nm.createNotificationChannel(NotificationChannel(CH_URGENT, "Urgent: verify & HD calls", NotificationManager.IMPORTANCE_HIGH))
         nm.createNotificationChannel(NotificationChannel(CH_SPAM, "Spam warnings", NotificationManager.IMPORTANCE_HIGH))
+        nm.createNotificationChannel(NotificationChannel(CH_LIVE, "Live location sharing", NotificationManager.IMPORTANCE_DEFAULT))
         com.voiceguard.app.telecom.CallNotifier.createChannels(ctx)
     }
 
@@ -55,6 +58,20 @@ object Notify {
         .setContentIntent(open(ctx, "home")).build()
 
     /** "Are You Really Calling?" arrives on the claimed person's phone. */
+    /** Always shown while a family member watches this phone's live location – with a Stop button. */
+    fun liveSharing(ctx: Context, fromName: String, untilMs: Long) {
+        val stop = PendingIntent.getBroadcast(ctx, 7015, Intent(ctx, ActionReceiver::class.java).setAction(ActionReceiver.STOP_LIVE),
+            PendingIntent.FLAG_IMMUTABLE)
+        val until = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(untilMs))
+        val n = Notification.Builder(ctx, CH_LIVE).setSmallIcon(R.drawable.ic_shield)
+            .setContentTitle("$fromName is viewing your live location")
+            .setContentText("Sharing until $until. Tap Stop to end it now.")
+            .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(open(ctx, "family"))
+            .addAction(Notification.Action.Builder(null, "Stop sharing", stop).build())
+            .build()
+        nm(ctx).notify(ID_LIVE, n)
+    }
+
     fun verifyRequest(ctx: Context, requestId: String, fromName: String, number: String?) {
         val extras = mapOf("rid" to requestId, "from" to fromName, "number" to number)
         val n = Notification.Builder(ctx, CH_URGENT).setSmallIcon(R.drawable.ic_shield)
@@ -97,6 +114,7 @@ object Notify {
     }
 
     fun spamWarning(ctx: Context, number: String, text: String) {
+        AppStats.inc("spam_warned")
         val n = Notification.Builder(ctx, CH_SPAM).setSmallIcon(R.drawable.ic_shield)
             .setContentTitle("⚠ Spam warning: ${Numbers.pretty(number)}").setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text)).setAutoCancel(true)

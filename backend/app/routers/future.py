@@ -2,14 +2,17 @@
 Police Join the Call (28), Telecom Partnership (29), Voice Shield (30), Smart Learning (31),
 Bank and Enterprise APIs (32). Auto Check Every Call (27) lives in the app."""
 import datetime as dt
+import hmac
+import os
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from .. import portal
 from ..ai import voice_shield
 from ..ai.audio_io import load_audio, to_wav_bytes
 from ..ai.number_info import normalize
@@ -48,7 +51,9 @@ async def police_join(body: PoliceJoin, me: User = Depends(current_user), s: Ses
 
 
 # ---------------------------------------------------------------- 29 telecom partnership
-TELECOM_KEY = "demo-telecom-key"
+# Operators get their own API key from the Team Portal (Telecom tab); every call is logged there.
+# The shared demo key keeps the prototype demo working; set VG_TELECOM_DEMO_KEY= (empty) to switch it off.
+TELECOM_KEY = os.getenv("VG_TELECOM_DEMO_KEY", "demo-telecom-key")
 
 
 class TelecomFlag(BaseModel):
@@ -57,21 +62,43 @@ class TelecomFlag(BaseModel):
     operator: str = "DemoTel"
 
 
+def _operator(s: Session, key: str | None, request: Request) -> str | None:
+    """The operator name behind an API key, or None (bad keys are logged for the team)."""
+    if not key:
+        return None
+    p = portal.telecom_partner(s, key)
+    if p:
+        p.calls, p.last_used = p.calls + 1, now()
+        s.add(p)
+        s.commit()
+        return p.name
+    if TELECOM_KEY and hmac.compare_digest(key, TELECOM_KEY):
+        return "demo"
+    portal.telecom_log(s, "?", "bad_key", detail=f"rejected key {key[:6]}…", ip=portal.client_ip(request))
+    return None
+
+
 @router.post("/api/v1/telecom/flag")
-def telecom_flag(body: TelecomFlag, x_api_key: str = Header(...), s: Session = Depends(get_session)):
-    if x_api_key != TELECOM_KEY:
+def telecom_flag(body: TelecomFlag, request: Request, x_api_key: str = Header(...), s: Session = Depends(get_session)):
+    who = _operator(s, x_api_key, request)
+    if not who:
         raise HTTPException(401, "bad API key")
     n = normalize(body.number)
-    s.add(ScamReport(number=n, reason=f"[{body.operator}] {body.reason}", source="telecom"))
+    operator = body.operator if who == "demo" else who
+    s.add(ScamReport(number=n, reason=f"[{operator}] {body.reason[:200]}", source="telecom"))
     s.commit()
+    portal.telecom_log(s, operator, "flag", n, body.reason, ip=portal.client_ip(request))
     return {"ok": True, "number": n}
 
 
 @router.get("/api/v1/telecom/lookup/{number}")
-def telecom_lookup(number: str, s: Session = Depends(get_session)):
+def telecom_lookup(number: str, request: Request, x_api_key: str | None = Header(None), s: Session = Depends(get_session)):
     """What an operator would query to show 'Suspected fraud' on the caller ID before the phone rings."""
     n = normalize(number)
     reports = s.exec(select(func.count()).select_from(ScamReport).where(ScamReport.number == n)).one()
+    who = _operator(s, x_api_key, request)
+    if who:
+        portal.telecom_log(s, who, "lookup", n, f"{reports} report(s)", ip=portal.client_ip(request))
     return {"number": n, "reports": reports, "label": "Suspected fraud" if reports >= 2 else "Unverified" if reports else "No reports"}
 
 

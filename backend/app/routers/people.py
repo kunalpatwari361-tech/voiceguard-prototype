@@ -9,13 +9,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlmodel import Session, or_, select
 
-from .. import config, messaging
+from .. import config, live_location, messaging
 from ..ai import models
 from ..ai.audio_io import load_audio
 from ..ai.fingerprints import speech_mask
 from ..ai.number_info import normalize
 from ..auth import current_user, require_family, require_self, valid_phone
-from ..db import Alert, Family, FamilyInvite, User, get_session, now
+from ..db import Alert, CallerIdOptOut, Family, FamilyInvite, LocationOptOut, User, get_session, now
 from ..hub import hub
 from .common import alert_dict, family_ids, iso, public_user, push_alert
 
@@ -27,6 +27,27 @@ def get_user(user_id: str, me: User = Depends(current_user), s: Session = Depend
     u = s.get(User, user_id)
     require_family(me, u)
     return public_user(u)
+
+
+# ------------------------------------------------------------------ Caller ID: show my name to people I call
+class CallerIdSetting(BaseModel):
+    show_name: bool
+
+
+@router.get("/me/caller-id")
+def get_caller_id(me: User = Depends(current_user), s: Session = Depends(get_session)):
+    return {"show_name": s.get(CallerIdOptOut, me.id) is None, "name": me.name, "phone": me.phone}
+
+
+@router.post("/me/caller-id")
+def set_caller_id(body: CallerIdSetting, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    row = s.get(CallerIdOptOut, me.id)
+    if body.show_name and row:
+        s.delete(row)
+    elif not body.show_name and not row:
+        s.add(CallerIdOptOut(user_id=me.id))
+    s.commit()
+    return {"show_name": body.show_name}
 
 
 # ------------------------------------------------------------------ family circle
@@ -235,6 +256,8 @@ async def request_location(body: LocationRequest, me: User = Depends(current_use
     require_self(me, body.asker_id)
     target = s.get(User, body.target_id)
     require_family(me, target)
+    if s.get(LocationOptOut, target.id):
+        raise HTTPException(403, f"{target.name} has turned off location sharing")
     asker = me
     fresh = False
     if hub.online(target.id):
@@ -249,6 +272,73 @@ async def request_location(body: LocationRequest, me: User = Depends(current_use
             hub.forget(rid)
         s.refresh(target)
     return {"fresh": fresh, "user": public_user(target)}
+
+
+# ------------------------------------------------------------------ Live Location (family only, always visible)
+class LiveStart(BaseModel):
+    target_id: str
+    minutes: int = 15
+
+
+class LiveStop(BaseModel):
+    target_id: str
+
+
+@router.post("/location/live/start")
+async def live_start(body: LiveStart, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    """Open the live map: the other phone sends its position every few seconds and shows that it is being watched."""
+    target = s.get(User, body.target_id)
+    require_family(me, target)
+    if target.id == me.id:
+        raise HTTPException(400, "that is you")
+    if s.get(LocationOptOut, target.id):
+        raise HTTPException(403, f"{target.name} has turned off location sharing")
+    until = live_location.start(target.id, me.id, body.minutes)
+    seconds = int((until - now()).total_seconds())
+    await hub.deliver(target.id, {"type": "location_live", "from": {"id": me.id, "name": me.name},
+                                  "seconds": seconds, "interval_s": live_location.INTERVAL_S})
+    return {"seconds": seconds, "interval_s": live_location.INTERVAL_S, "online": hub.online(target.id),
+            "user": public_user(target)}
+
+
+@router.post("/location/live/stop")
+async def live_stop(body: LiveStop, me: User = Depends(current_user)):
+    if live_location.stop(body.target_id, me.id):
+        await hub.send(body.target_id, {"type": "location_live_stop"})
+    return {"ok": True}
+
+
+@router.post("/location/live/end")
+async def live_end(me: User = Depends(current_user)):
+    """The person being watched tapped "Stop sharing"."""
+    for w in live_location.end_all(me.id):
+        await hub.send(w, {"type": "location_live_ended", "user_id": me.id, "name": me.name})
+    return {"ok": True}
+
+
+class LocationSharing(BaseModel):
+    share: bool
+
+
+@router.get("/me/location-sharing")
+def get_location_sharing(me: User = Depends(current_user), s: Session = Depends(get_session)):
+    return {"share": s.get(LocationOptOut, me.id) is None}
+
+
+@router.post("/me/location-sharing")
+async def set_location_sharing(body: LocationSharing, me: User = Depends(current_user), s: Session = Depends(get_session)):
+    row = s.get(LocationOptOut, me.id)
+    if body.share and row:
+        s.delete(row)
+    elif not body.share and not row:
+        s.add(LocationOptOut(user_id=me.id))
+        me.lat = me.lon = me.loc_accuracy = None   # forget where this phone was
+        me.place, me.loc_at = None, None
+        s.add(me)
+    s.commit()
+    if not body.share:
+        await live_end(me)
+    return {"share": body.share}
 
 
 # ------------------------------------------------------------------ alerts

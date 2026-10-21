@@ -13,12 +13,12 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from .. import voice_id
-from ..ai import challenge, fingerprints, models, number_info, reply_delay, separate
+from .. import daily_report, voice_id
+from ..ai import challenge, fingerprints, models, number_info, reply_delay, separate, summary
 from ..ai.audio_io import load_audio
 from ..ai.pipeline import _clean, analyze_voice
 from ..auth import current_user, require_family, require_self
-from ..db import BlockedNumber, RiskEvent, ScamReport, User, get_session, now
+from ..db import BlockedNumber, CallerIdOptOut, RiskEvent, ScamReport, User, get_session, now
 from ..hub import hub
 from .common import age_min, family_ids, iso, push_alert
 
@@ -54,8 +54,15 @@ def lookup_number(s: Session, number: str, user: User | None) -> dict:
                                                                BlockedNumber.user_id.in_(fam))).first() is not None
     member = s.exec(select(User).where(User.phone == n, User.family_id == user.family_id)).first() \
         if user and user.family_id else None
+    # Caller ID: anyone who proved this number by OTP shows by name (with the Verified badge) unless they hid it
+    owner = None if member else s.exec(select(User).where(User.phone == n)).first()
+    if owner and s.get(CallerIdOptOut, owner.id):
+        owner = None
+    top_reason = s.exec(select(ScamReport.reason).where(ScamReport.number == n, ScamReport.reason != "")
+                        .order_by(ScamReport.created_at.desc())).first() if reports else None
     return number_info.info(n, community_reports=reports, blocked_by_family=blocked,
-                            in_family=member.name if member else None)
+                            in_family=member.name if member else None,
+                            registered_name=owner.name if owner else None, top_reason=top_reason)
 
 
 @router.post("/analyze")
@@ -89,6 +96,7 @@ async def analyze(file: UploadFile = File(...),
         # The phone's mic hears both people: cut out the owner's own (real) voice, check only the caller.
         y, focus = await asyncio.to_thread(separate.keep_caller, y, np.array(json.loads(me.voiceprint), dtype=np.float32))
         if focus["used"] and focus["caller_s"] < 1.0:
+            daily_report.log_check(me.id, source, None, error="only_owner")
             log.info("analyze %s: %.1fs heard, only the owner's voice", source, heard_s)
             return {"ok": False, "error": "only_owner", "caller_focus": focus,
                     "message": "Only your own voice was heard. Keep the call on speaker and let the caller talk.",
@@ -104,6 +112,7 @@ async def analyze(file: UploadFile = File(...),
         hd_call=hd_call, location=loc, room_audio=source == "live_call",
         voice_lookup=voice_id.match, return_embedding=True)
     emb = result.pop("_embedding", None)
+    daily_report.log_check(user.id, source, result)   # AI check log (Team Portal: Logs, Daily reports)
     if not result.get("ok"):
         log.info("analyze %s: %.1fs heard, %s", source, heard_s, result.get("error"))
         return result | {"caller_focus": focus}
@@ -112,6 +121,7 @@ async def analyze(file: UploadFile = File(...),
              result["risk"]["score"], result["risk"]["level"], result["ai_voice"]["fake_prob"])
     result["caller_focus"] = focus
     result["number_info"] = ninfo
+    result["summary"] = summary.make(result, claimed.name if claimed else None, ninfo)
     result["claimed"] = {"id": claimed.id, "name": claimed.name, "voiceprint_enrolled": vp is not None,
                          "location": loc} if claimed else None
     result["source"] = source

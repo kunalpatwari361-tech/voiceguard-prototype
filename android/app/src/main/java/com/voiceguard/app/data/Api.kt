@@ -37,14 +37,24 @@ object Api {
 
     private fun req(path: String): Request.Builder = Request.Builder().url(url(path)).apply {
         Prefs.token?.let { header("Authorization", "Bearer $it") }
+        header("X-VG-App", AppIdentity.header)   // castle layer 7: which app is calling
     }
 
-    suspend fun get(path: String): JsonElement = call(req(path).get().build())
+    /** Activity counts for the Admin Console (counts only, nothing about who or what). */
+    private fun count(path: String) = when {
+        path.startsWith("/api/analyze") -> com.voiceguard.app.service.AppStats.inc("ai_checks")
+        path == "/api/alerts" -> com.voiceguard.app.service.AppStats.inc("family_alerts")
+        path.startsWith("/api/caller-identity/lookup/") -> com.voiceguard.app.service.AppStats.inc("caller_id_lookups")
+        path == "/api/location/live/start" -> com.voiceguard.app.service.AppStats.inc("live_location_views")
+        else -> Unit
+    }
+
+    suspend fun get(path: String): JsonElement = call(req(path).get().build()).also { count(path) }
 
     suspend fun post(path: String, body: JsonObject = JsonObject(emptyMap()), headers: Map<String, String> = emptyMap()): JsonElement {
         val b = req(path).post(body.toString().toRequestBody(JSON_TYPE))
         headers.forEach { (k, v) -> b.header(k, v) }
-        return call(b.build())
+        return call(b.build()).also { count(path) }
     }
 
     suspend fun delete(path: String): JsonElement = call(req(path).delete().build())
@@ -53,7 +63,7 @@ object Api {
         val mb = MultipartBody.Builder().setType(MultipartBody.FORM)
         fields.forEach { (k, v) -> if (v != null) mb.addFormDataPart(k, v.toString()) }
         if (wav != null) mb.addFormDataPart("file", fileName, wav.toRequestBody(WAV_TYPE))
-        return call(req(path).post(mb.build()).build())
+        return call(req(path).post(mb.build()).build()).also { count(path) }
     }
 
     suspend fun uploadForBytes(path: String, fields: Map<String, Any?>, wav: ByteArray): ByteArray = withContext(Dispatchers.IO) {
@@ -73,10 +83,23 @@ object Api {
         }
     }
 
+    /** Did the call reach the server, and how fast (Team Portal: how the app works on each operator). */
+    private fun netStats(req: Request, code: Int, startedAt: Long) {
+        val stats = com.voiceguard.app.service.AppStats
+        if (code >= 500) { stats.inc("api_server_errors"); return }
+        stats.inc("api_ok")
+        if (req.method == "GET" && code in 200..299) {
+            stats.inc("api_gets")
+            stats.inc("api_get_ms", (android.os.SystemClock.elapsedRealtime() - startedAt).toInt().coerceIn(0, 60_000))
+        }
+    }
+
     private suspend fun call(req: Request, retried: Boolean = false): JsonElement = withContext(Dispatchers.IO) {
+        val startedAt = android.os.SystemClock.elapsedRealtime()
         try {
             client.newCall(req).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
+                netStats(req, resp.code, startedAt)
                 if (!resp.isSuccessful) {
                     val detail = runCatching { VgJson.parseToJsonElement(text).asObj().str("detail") }.getOrNull()
                     if (resp.code == 401 && !Prefs.token.isNullOrBlank()) {
@@ -98,6 +121,7 @@ object Api {
             if (now != null && now != before && old.startsWith(before)) {
                 return@withContext call(req.newBuilder().url(now + old.removePrefix(before)).build(), retried = true)
             }
+            com.voiceguard.app.service.AppStats.inc("api_unreachable")
             throw ApiException("Cannot reach the VoiceGuard server. Is the laptop server running? " +
                 "Keep this phone on the same Wi-Fi as the laptop (or connect USB).")
         }

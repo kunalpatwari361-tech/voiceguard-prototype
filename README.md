@@ -283,6 +283,7 @@ Every account is created by **verifying the phone number with a one-time code**;
 - **Test numbers**: `VG_OTP_TEST_NUMBERS=+919876500002:246810` – fixed codes, no SMS (for judges / `sim_second_phone.bat`).
 
 Partner APIs (bank `/api/v1/enterprise/*`, telecom `/api/v1/telecom/flag`) use their own API keys instead.
+The team's web portal (`/portal`) has its own sign-in: SMS code **plus** an authenticator-app code ([docs/portal.md](docs/portal.md)).
 
 ## Opening the app: a phone app with VoiceGuard built in
 
@@ -427,13 +428,13 @@ load (the window prints `AI models ready`). Once the models are downloaded the s
 | 6 | Live Call Check | Real time, at the top of the call screen: HD/demo calls fully; normal calls via loudspeaker every 6 s (auto for unknown callers), your own voice cut out by voice print, mic unblocked by "VoiceGuard call listening"* | `ui/LiveCall.kt`, `ai/separate.py`, `service/CallListenService.kt` |
 | 7 | Voice Note Check | Real (share WhatsApp audio to app) | `audio/Decoder.kt`, `ui/CheckScreen.kt` |
 | 8 | Are You Really Calling? | Real | `routers/verify.py`, `ui/CallTools.kt`, `ui/HdScreens.kt` |
-| 9 | Family Location Check | Real (GPS + map): Family tab map, "Where is … now?" with a live fix on the call screen, the sender's place + Map button on every family alert, and a fresh map link in SMS / WhatsApp alerts | `service/Loc.kt`, `ui/FamilyScreens.kt`, `ui/CallTools.kt`, `routers/common.py` |
+| 9 | Family Location Check + **Live Location** | Real (GPS + map): Family tab map, "Where is … now?" with a live fix on the call screen, the sender's place + Map button on every family alert, and a fresh map link in SMS / WhatsApp alerts. **Live Location**: tap 📍 on a family member – their marker moves every 15 s (address, accuracy circle, battery, Directions, Call) for up to 15 min while the map is open. Their phone always shows *"… is viewing your live location"* with **Stop sharing**; Settings → *Share my location with family* turns all sharing off (the server then stores nothing) | `service/Loc.kt`, `service/LiveShare.kt`, `ui/LiveLocation.kt`, `app/live_location.py`, `routers/people.py` |
 | 10 | Voice Print Match | Real | `ai/models.py`, `ui/FamilyScreens.kt` |
 | 11 | VoiceGuard HD Call | Real (16 kHz app-to-app) | `audio/HdAudio.kt`, `routers/hdcall.py` |
 | 12 | Voice Test (Voice CAPTCHA) | Real | `ai/challenge.py`, `routers/checks.py` |
 | 13 | Reply Delay Check | Real | `ai/reply_delay.py` |
 | 14 | Scam Words Alert | Real (Whisper + rules, optional Claude) | `ai/scam_text.py` |
-| 15 | Number Info | Real (prefix rules + community data) | `ai/number_info.py` |
+| 15 | Number Info + Caller ID | Real: prefix rules + community data. **Caller ID with Verified badge**: a number that a VoiceGuard user proved by OTP shows their name with ✓ (Settings → *Show my name to people I call* hides it); reported numbers carry the community's label | `ai/number_info.py`, `routers/checks.py`, `routers/people.py` (`/api/me/caller-id`) |
 | 16 | Final Risk Score | Real | `ai/risk.py` |
 | 17 | Family Alert | Automatic: DANGER result, reported/high-risk caller, fake "Are you calling?", Panic – with a Call button. During a call one tap also sends it by **SMS** or **WhatsApp** without hanging up | `routers/common.py`, `service/Inbox.kt`, `ui/TellFamily.kt` |
 | 18 | Call-Back Alert | Real | `service/GuardService.kt (CallWatch)`, `routers/verify.py` |
@@ -443,14 +444,16 @@ load (the window prints `AI models ready`). Once the models are downloaded the s
 | 22 | Report to Chakshu | Pre-filled form + link (no public API) | `routers/evidence.py` |
 | 23 | Family Calls Cyber Cell | Real | `routers/evidence.py` |
 | 24 | Spam Warning | Real (call screening role) | `telecom/ScreeningService.kt` |
-| 25 | Block Numbers | Real, shared by family | `telecom/ScreeningService.kt`, `routers/checks.py` |
+| 25 | Block Numbers + Auto-Block Spam | Real, shared by family. **Auto-Block Spam** (on by default, Settings): community-reported scam numbers are declined automatically and the family is told | `telecom/ScreeningService.kt`, `routers/checks.py` |
 | 26 | Community Scam List | Real: numbers **and Scam Voice IDs** (calls linked by voice, even from new numbers) | `routers/checks.py`, `app/voice_id.py` |
+| – | AI Call Summary | Real: every check summed up in plain sentences (English + Hindi) – who the caller claimed to be, the number, what made the voice, voice print, Scam Voice ID, what was said, the result. Works with no key; uses Claude's summary of the words when a key is set | `ai/summary.py`, `ui/Report.kt` |
 | 27 | Auto Check Every Call | Partial (number on every call; voice on demo/HD) | Settings toggle |
 | 28 | Police Join the Call | Simulated | `routers/future.py` |
-| 29 | Telecom Partnership | Mock operator API | `routers/future.py` |
+| 29 | Telecom Partnership | Real operator API: each operator gets its own key from the Team Portal, every call logged (shared demo key still works) | `routers/future.py`, `app/portal.py` |
 | 30 | Voice Shield | Prototype (audio watermark) | `ai/voice_shield.py` |
 | 31 | Smart Learning (federated) | Simulation (FedAvg) | `app/training/federated.py` |
 | 32 | Bank and Enterprise APIs | Real REST API (demo key) | `routers/future.py` |
+| – | Team Portal (confidential) | Real: team-only web portal at `/portal` – SMS code + authenticator app sign-in, roles, AI models (test, switch, roll back), security & lockdown, evidence cases, telecom keys and data, fraud numbers, audit log. See [docs/portal.md](docs/portal.md) | `app/portal.py`, `routers/portal.py`, `static/portal.*` |
 
 \* Android 10+ does not let normal apps record phone-call audio. The app tries speaker-mode recording and tells
 you if Android blocks it; HD calls, voice notes and the non-audio checks (#8, #9, #15, #19) cover that gap –

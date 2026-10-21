@@ -97,6 +97,7 @@ fun AppNav(nav: NavHostController, start: String) {
         }
         composable("number/{number}") { NumberScreen(it.arguments?.getString("number").orEmpty(), back) }
         composable("family") { FamilyScreen(nav, back) }
+        composable("liveloc/{id}") { LiveLocationScreen(it.arguments?.getString("id")!!, back) }
         composable("voiceprint") { VoicePrintScreen(back) }
         composable("check?mode={mode}", listOf(navArgument("mode") { defaultValue = "file" })) {
             CheckScreen(it.arguments?.getString("mode") ?: "file", nav, back)
@@ -122,5 +123,6 @@ fun AppNav(nav: NavHostController, start: String) {
         composable("evidence/{id}") { EvidenceDetailScreen(it.arguments?.getString("id")!!, back) }
         composable("future") { FutureLabScreen(back) }
         composable("settings") { SettingsScreen(nav, back) }
+        composable("callerid") { com.voiceguard.app.callerid.CallerIdentityScreen(back) }
     }
 }

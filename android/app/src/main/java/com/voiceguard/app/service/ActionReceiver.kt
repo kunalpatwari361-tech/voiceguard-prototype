@@ -11,6 +11,17 @@ import kotlinx.coroutines.launch
 /** Handles notification buttons without opening the app (e.g. "NO, not me"). */
 class ActionReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
+        if (intent.action == STOP_LIVE) {
+            val done = goAsync()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    LiveShare.endByMe(ctx)
+                } finally {
+                    done.finish()
+                }
+            }
+            return
+        }
         if (intent.action == VERIFY) {
             Notify.cancel(ctx, Notify.ID_VERIFY)
             val done = goAsync()     // works even if the app was closed and the live link is down
@@ -26,6 +37,7 @@ class ActionReceiver : BroadcastReceiver() {
 
     companion object {
         const val VERIFY = "com.voiceguard.app.VERIFY_ANSWER"
+        const val STOP_LIVE = "com.voiceguard.app.STOP_LIVE_LOCATION"
     }
 }
 

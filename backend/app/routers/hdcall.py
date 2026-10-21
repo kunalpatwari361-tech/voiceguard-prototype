@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from ..ai.audio_io import pcm16_to_float
+from .. import daily_report
 from ..ai.pipeline import analyze_voice
 from ..ai.reply_delay import TurnTracker
 from ..db import User, engine, get_session
@@ -123,6 +124,7 @@ async def _analyse(c: Call, side: str):
         gaps = c.tracker.gaps.get(side)
         result = await asyncio.to_thread(analyze_voice, y, claimed_name=name, claimed_print=vp,
                                          hd_call="verified", reply_gaps=gaps)
+        daily_report.log_check(c.other(side), "hd_call", result)
         await hub.send(c.other(side), {"type": "hd_analysis", "call_id": c.id,
                                        "about": {"id": side, "name": name}, "result": result})
     except Exception:

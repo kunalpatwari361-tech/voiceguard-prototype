@@ -131,7 +131,7 @@ fun SetupScreen(onDone: () -> Unit) {
 
     Screen(tr("Welcome to VoiceGuard", "VoiceGuard में स्वागत है"), onBack = null) {
         Text(tr("Stops AI voice-clone scam calls. Set up takes 2 minutes.", "AI आवाज़-क्लोन ठगी कॉल रोकता है। सेटअप में 2 मिनट लगेंगे।"), color = VG.muted)
-        Row { FilterChip(Prefs.hindi, { Prefs.hindi = !Prefs.hindi; step = step }, label = { Text("हिंदी") }) }
+        Row { LanguageButton { step = step } }
 
         Section(tr("1. Server", "1. सर्वर"), Icons.Default.Dns) {
             OutlinedTextField(server, { server = it }, label = { Text("Server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -265,7 +265,7 @@ fun PermissionsPanel() {
             PermRow(tr("Panic Pause: usage access", "पैनिक पॉज़: यूसेज एक्सेस"), GuardService.usageAccess(ctx)) {
                 roleLauncher.launch(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             }
-            PermRow(tr("Panic Pause: show over other apps", "पैनिक पॉज़: दूसरे ऐप के ऊपर दिखाएं"), Settings.canDrawOverlays(ctx)) {
+            PermRow(tr("Show over other apps (caller card, Panic Pause)", "दूसरे ऐप के ऊपर दिखाएं (कॉलर कार्ड, पैनिक पॉज़)"), Settings.canDrawOverlays(ctx)) {
                 roleLauncher.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}")))
             }
             if (Build.VERSION.SDK_INT >= 34) {
@@ -297,10 +297,15 @@ fun SettingsScreen(nav: NavHostController, back: () -> Unit) {
     val scope = rememberCoroutineScope()
     var server by remember { mutableStateOf(Prefs.serverUrl) }
     var msg by remember { mutableStateOf<String?>(null) }
-    var hindi by remember { mutableStateOf(Prefs.hindi) }
     var auto by remember { mutableStateOf(Prefs.autoCheck) }
     var panic by remember { mutableStateOf(Prefs.panicPause) }
+    var autoBlock by remember { mutableStateOf(Prefs.autoBlockScam) }
+    var showName by remember { mutableStateOf(Prefs.showMyName) }
+    var shareLoc by remember { mutableStateOf(Prefs.shareLocation) }
     val connected by Live.connected.collectAsState()
+    LaunchedEffect(Unit) {   // the server keeps the real Caller ID setting
+        runCatching { Api.get("/api/me/caller-id").asObj() }.getOrNull()?.bool("show_name")?.let { showName = it; Prefs.showMyName = it }
+    }
 
     Screen(tr("Settings", "सेटिंग्स"), back) {
         Section(tr("Server", "सर्वर"), Icons.Default.Dns) {
@@ -314,9 +319,38 @@ fun SettingsScreen(nav: NavHostController, back: () -> Unit) {
             msg?.let { Text(it, color = VG.muted) }
         }
         Section(tr("Preferences", "पसंद"), Icons.Default.Settings) {
-            ToggleRow("हिंदी / Hindi", hindi) { hindi = it; Prefs.hindi = it }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(tr("Language", "भाषा"), modifier = Modifier.weight(1f))
+                LanguageButton()
+            }
+            Text(tr("Theme", "थीम"))
+            ThemeChips()
             ToggleRow(tr("Auto Check Every Call", "हर कॉल की ऑटो जाँच"), auto) { auto = it; Prefs.autoCheck = it }
             ToggleRow(tr("Panic Pause before payments", "पेमेंट से पहले पैनिक पॉज़"), panic) { panic = it; Prefs.panicPause = it }
+            var floatCard by remember { mutableStateOf(Prefs.floatingCard) }
+            ToggleRow(tr("Floating caller card: saved / unknown / spam", "फ़्लोटिंग कॉलर कार्ड: सेव / अनजान / स्पैम"), floatCard) {
+                floatCard = it; Prefs.floatingCard = it
+            }
+            if (floatCard && !Settings.canDrawOverlays(ctx)) SmallButton(tr("Allow 'Display over other apps' for the card", "कार्ड के लिए 'दूसरे ऐप के ऊपर दिखाएं' चालू करें")) {
+                ctx.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            ToggleRow(tr("Auto-block reported scam numbers", "रिपोर्टेड स्कैम नंबर अपने आप ब्लॉक करें"), autoBlock) {
+                autoBlock = it; Prefs.autoBlockScam = it
+            }
+            ToggleRow(tr("Share my location with family", "परिवार के साथ मेरी लोकेशन शेयर करें"), shareLoc) { v ->
+                shareLoc = v; Prefs.shareLocation = v
+                if (!v) com.voiceguard.app.service.LiveShare.stop(ctx)
+                scope.launch { runCatching { Api.post("/api/me/location-sharing", json("share" to v)) } }
+            }
+            ToggleRow(tr("Show my name to people I call (Caller ID)", "जिन्हें कॉल करूँ उन्हें मेरा नाम दिखे (कॉलर ID)"), showName) { v ->
+                showName = v; Prefs.showMyName = v
+                scope.launch { runCatching { Api.post("/api/me/caller-id", json("show_name" to v)) } }
+            }
+        }
+        Section(tr("Caller Identity & Verification", "कॉलर पहचान और सत्यापन"), Icons.Default.Security) {
+            Text(tr("Who is calling, where the name came from, and how far it can be trusted.",
+                "कौन कॉल कर रहा है, नाम कहाँ से आया, और उस पर कितना भरोसा करें।"), color = VG.muted, fontSize = 13.sp)
+            SmallButton(tr("Open", "खोलें")) { nav.navigate("callerid") }
         }
         Section(tr("Permissions & roles", "अनुमतियाँ"), Icons.Default.Security) { PermissionsPanel() }
         Section(tr("Alerts when the app is closed", "ऐप बंद होने पर भी अलर्ट"), Icons.Default.Notifications) {

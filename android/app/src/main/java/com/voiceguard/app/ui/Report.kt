@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.GraphicEq
@@ -77,9 +78,16 @@ fun ReportView(r: JsonObject, rc: ReportCtx, nav: NavHostController?, compact: B
         Text(risk.bi("advice", "advice_hi").orEmpty(), color = VG.level(level), fontWeight = FontWeight.SemiBold)
         risk.objs("reasons").filter { !it.str("en").isNullOrBlank() }.take(if (compact) 4 else 10).forEach { x ->
             Row(Modifier.fillMaxWidth()) {
-                Text("• " + (if (Prefs.hindi) x.str("label_hi") else x.str("label")).orEmpty() + ": ", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text("• " + x.bi("label", "label_hi").orEmpty() + ": ", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(x.bi("en", "hi").orEmpty(), color = VG.muted, fontSize = 14.sp, modifier = Modifier.weight(1f))
             }
+        }
+    }
+    // AI Call Summary: the whole check in a few plain sentences (English / Hindi)
+    r.obj("summary")?.let { sm ->
+        Section(tr("Call summary", "कॉल का सार"), Icons.Default.Summarize, VG.level(level)) {
+            if (compact) Text(sm.bi("en", "hi").orEmpty(), fontSize = 14.sp)
+            else sm.objs("points").forEach { p -> Text("• " + p.bi("en", "hi").orEmpty(), fontSize = 14.sp) }
         }
     }
     r.obj("voice_id")?.takeIf { it.bool("ignored") != true }?.let { ScamVoiceCard(it, compact) }

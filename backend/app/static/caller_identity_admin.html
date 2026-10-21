@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caller Identity Administration</title>
+<style>
+:root { --bg:#f3f6fa; --card:#fff; --ink:#0f172a; --muted:#526173; --line:#d5dde8; --accent:#0369a1; --ok:#15803d; --bad:#dc2626; --warn:#b45309; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0b1220; --card:#131c2f; --ink:#e5e7eb; --muted:#94a3b8; --line:#26324a; --accent:#38bdf8; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 "Segoe UI", system-ui, sans-serif; }
+header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+header h1 { font-size:18px; margin:0; } header .who { margin-left:auto; color:var(--muted); font-size:13px; }
+main { max-width:1100px; margin:0 auto; padding:16px 20px 60px; display:grid; gap:16px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+.stats { display:flex; gap:12px; flex-wrap:wrap; } .stat { padding:10px 14px; border:1px solid var(--line); border-radius:8px; background:var(--card); }
+.stat b { display:block; font-size:20px; }
+nav { display:flex; gap:6px; flex-wrap:wrap; }
+nav button, button { font:inherit; padding:7px 12px; border-radius:7px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+nav button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+button.ok { border-color:var(--ok); color:var(--ok); } button.bad { border-color:var(--bad); color:var(--bad); } button.warn { border-color:var(--warn); color:var(--warn); }
+input, select { font:inherit; padding:7px 10px; border-radius:7px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+table { width:100%; border-collapse:collapse; font-size:14px; } th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+.scroll { overflow-x:auto; } .muted { color:var(--muted); } .err { color:var(--bad); } .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.pill { font-size:12px; padding:2px 8px; border-radius:99px; border:1px solid var(--line); }
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header><h1>Caller Identity Administration</h1><span class="muted">VoiceGuard – administrators only</span><span class="who" id="who"></span></header>
+<main>
+  <section class="card" id="login">
+    <p>Sign in with your administrator phone number (the normal VoiceGuard OTP sign-in). Access is checked by the server for every action.</p>
+    <div class="row"><input id="phone" placeholder="Phone number" autocomplete="tel"><button id="send">Send code</button></div>
+    <div class="row" id="step2" hidden style="margin-top:8px"><input id="code" placeholder="6-digit code" inputmode="numeric"><input id="name" placeholder="Your name"><button id="verify">Sign in</button></div>
+    <p class="err" id="loginErr"></p>
+  </section>
+
+  <div id="app" hidden>
+    <div class="stats" id="stats"></div>
+    <nav id="tabs"></nav>
+    <section class="card" id="view"></section>
+    <p class="err" id="err"></p>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const A = "/api/admin/caller-identity";
+let token = null;
+try { token = sessionStorage.getItem("cid_admin_token"); } catch (e) {}
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}), ...(opts.headers || {}) } });
+  if (!r.ok) { let m = r.status + ""; try { m = (await r.json()).detail || m; } catch (e) {} throw new Error(m); }
+  return (r.headers.get("content-type") || "").includes("json") ? r.json() : r.text();
+}
+const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body || {}) });
+
+$("send").onclick = async () => {
+  $("loginErr").textContent = "";
+  try { await post("/api/auth/otp/start", { phone: $("phone").value }); $("step2").hidden = false; }
+  catch (e) { $("loginErr").textContent = e.message; }
+};
+$("verify").onclick = async () => {
+  $("loginErr").textContent = "";
+  try {
+    const r = await post("/api/auth/otp/verify", { phone: $("phone").value, code: $("code").value, name: $("name").value || "Admin" });
+    token = r.token; try { sessionStorage.setItem("cid_admin_token", token); } catch (e) {}
+    await start();
+  } catch (e) { $("loginErr").textContent = e.message; }
+};
+
+const TABS = { queue: "Review queue", search: "Search records", businesses: "Businesses", conflicts: "Conflicts", activity: "API activity & errors", deletions: "Deletion requests", audit: "Audit trail", reports: "Reports & retention" };
+let tab = "queue";
+
+async function start() {
+  try {
+    const me = await api(A + "/me");
+    $("who").textContent = me.name + " · " + me.phone;
+    $("login").hidden = true; $("app").hidden = false;
+    $("tabs").innerHTML = Object.entries(TABS).map(([k, v]) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${v}</button>`).join("");
+    $("tabs").onclick = (e) => { if (e.target.dataset.t) { tab = e.target.dataset.t; start(); } };
+    const s = await api(A + "/summary");
+    $("stats").innerHTML = [["Pending", s.pending], ["Flagged", s.flagged], ["Verified businesses", s.businesses_verified], ["Errors (24 h)", s.errors_24h],
+      ["Telecom source", s.telecom_configured ? "configured" : "not configured"], ["Retention", s.retention_days + " days"]]
+      .map(([k, v]) => `<div class="stat"><span class="muted">${esc(k)}</span><b>${esc(v)}</b></div>`).join("");
+    await VIEWS[tab]();
+  } catch (e) {
+    if (e.message === "Administrators only.") { $("login").hidden = false; $("app").hidden = true; $("step2").hidden = true; $("code").value = ""; token = null; try { sessionStorage.clear(); } catch (x) {} $("loginErr").textContent = "You are signed in, but this number is not an administrator. Ask the server owner to add it to VG_CALLER_ID_ADMIN_PHONES (backend/.env) and restart the server. Do not retry the code – a used code cannot be reused."; }
+    else if (String(e.message).startsWith("Please verify")) { $("login").hidden = false; $("app").hidden = true; }
+    else $("err").textContent = e.message;
+  }
+}
+
+function table(rows, cols, actions) {
+  if (!rows.length) return '<p class="muted">Nothing here.</p>';
+  return `<div class="scroll"><table><tr>${cols.map((c) => `<th>${esc(c[1])}</th>`).join("")}${actions ? "<th></th>" : ""}</tr>` +
+    rows.map((r) => `<tr>${cols.map((c) => `<td>${esc(typeof c[0] === "function" ? c[0](r) : r[c[0]])}</td>`).join("")}${actions ? `<td>${actions(r)}</td>` : ""}</tr>`).join("") + "</table></div>";
+}
+
+const VIEWS = {
+  async queue() {
+    const v = $("view");
+    v.innerHTML = `<div class="row"><select id="st"><option>pending</option><option>flagged</option><option>approved</option><option>rejected</option></select>
+      <select id="kd"><option value="">all kinds</option><option value="name">name corrections</option><option value="spam">spam reports</option></select><button id="go">Show</button></div><div id="list"></div>`;
+    const load = async () => {
+      const rows = await api(`${A}/submissions?status=${$("st").value}&kind=${$("kd").value}`);
+      $("list").innerHTML = table(rows, [["kind", "Kind"], ["number", "Number"], ["name", "Suggested name"], ["reason", "Reason / note"], ["created_at", "Received"], [(r) => r.legal_hold ? "legal hold" : "", ""]],
+        (r) => `<div class="row"><button class="ok" data-a="approve" data-id="${r.id}">Approve</button><button class="bad" data-a="reject" data-id="${r.id}">Reject</button>
+          <button class="warn" data-a="flag" data-id="${r.id}">Flag</button>${r.kind === "name" ? `<input size="14" placeholder="Correct name" id="c${r.id}"><button data-a="correct" data-id="${r.id}">Correct</button>` : ""}
+          <label class="muted"><input type="checkbox" id="h${r.id}" ${r.legal_hold ? "checked" : ""}> hold</label></div>`);
+    };
+    $("go").onclick = load;
+    $("list").onclick = async (e) => {
+      const a = e.target.dataset.a, id = e.target.dataset.id; if (!a) return;
+      try { await post(`${A}/submissions/${id}/review`, { action: a, name: a === "correct" ? $("c" + id).value : null, legal_hold: $("h" + id).checked }); await load(); start(); }
+      catch (x) { $("err").textContent = x.message; }
+    };
+    await load();
+  },
+  async search() {
+    $("view").innerHTML = `<div class="row"><input id="q" placeholder="Number or name"><button id="go">Search</button></div><div id="res"></div>`;
+    $("go").onclick = async () => {
+      const r = await api(`${A}/records?q=${encodeURIComponent($("q").value)}`);
+      const id = r.resolved && r.resolved.identity;
+      $("res").innerHTML = (r.resolved ? `<p><b>Shown to users:</b> ${id ? `${esc(id.name)} <span class="pill">${esc(id.source)}</span> <span class="pill">${esc(id.status)}</span> – ${esc(id.detail)}` : "Unknown caller"}<br><span class="muted">Telecom: ${esc(r.resolved.telecom.available ? "available" : r.resolved.telecom.reason)}</span></p>` : "") +
+        "<h3>Businesses</h3>" + table(r.businesses, [["number", "Number"], ["name", "Name"], ["verified", "Verified"], ["verification_note", "How verified"]]) +
+        "<h3>Submissions</h3>" + table(r.submissions, [["kind", "Kind"], ["number", "Number"], ["name", "Name"], ["status", "Status"], ["created_at", "Received"]]);
+    };
+  },
+  async businesses() {
+    const v = $("view");
+    v.innerHTML = `<div class="row"><input id="bn" placeholder="Number"><input id="bname" placeholder="Business name"><input id="bc" placeholder="Category"><button id="add">Add (unverified)</button></div>
+      <p class="muted">Mark a business verified only after checking its documents or calling back its officially listed number. Describe what you checked.</p><div id="list"></div>`;
+    const load = async () => {
+      const rows = await api(A + "/businesses");
+      $("list").innerHTML = table(rows, [["number", "Number"], ["name", "Name"], ["category", "Category"], [(r) => r.verified ? "verified" : "not verified", "Status"], ["verification_note", "How verified"]],
+        (r) => r.verified ? `<button class="bad" data-u="${r.id}">Unverify</button>` : `<input size="22" id="n${r.id}" placeholder="How was it verified?"><button class="ok" data-v="${r.id}">Verify</button>`);
+    };
+    $("add").onclick = async () => { try { await post(A + "/businesses", { number: $("bn").value, name: $("bname").value, category: $("bc").value }); await load(); } catch (e) { $("err").textContent = e.message; } };
+    $("list").onclick = async (e) => {
+      try {
+        if (e.target.dataset.v) await post(`${A}/businesses/${e.target.dataset.v}/verify`, { note: $("n" + e.target.dataset.v).value });
+        if (e.target.dataset.u) await post(`${A}/businesses/${e.target.dataset.u}/unverify`, { note: "unverified by admin" });
+        await load(); start();
+      } catch (x) { $("err").textContent = x.message; }
+    };
+    await load();
+  },
+  async conflicts() {
+    const rows = await api(A + "/conflicts");
+    $("view").innerHTML = rows.length ? rows.map((c) => `<p><b>${esc(c.number)}</b>: ${c.names.map((n) => `${esc(n.name)} (${n.supporters} user${n.supporters > 1 ? "s" : ""}${n.approved ? ", approved" : ""})`).join(" · ")}</p>`).join("") : '<p class="muted">No conflicting names.</p>';
+  },
+  async activity() {
+    $("view").innerHTML = `<div class="row"><select id="k"><option value="">all</option><option>lookup</option><option>submit</option><option>delete</option><option>error</option><option>denied</option></select><button id="go">Show</button></div><div id="list"></div>`;
+    const load = async () => { $("list").innerHTML = table(await api(`${A}/events?kind=${$("k").value}`), [["at", "Time"], ["kind", "Kind"], ["status", "Status"], ["number", "Number"], ["detail", "Detail"]]); };
+    $("go").onclick = load; await load();
+  },
+  async deletions() { $("view").innerHTML = table(await api(A + "/deletions"), [["requested_at", "Requested"], ["status", "Status"], ["deleted", "Deleted"], ["kept_anonymised", "Kept (legal hold, anonymised)"]]); },
+  async audit() { $("view").innerHTML = table(await api(A + "/audit"), [["at", "Time"], ["admin_id", "Admin"], ["action", "Action"], ["target", "Target"], ["detail", "Detail"]]); },
+  async reports() {
+    $("view").innerHTML = `<p>Download reports (account ids are removed from submission exports):</p><div class="row">
+      <button data-x="submissions">Submissions CSV</button><button data-x="businesses">Businesses CSV</button><button data-x="audit">Audit CSV</button></div>
+      <p style="margin-top:16px">Retention: submissions are deleted after the configured number of days (except legal hold); activity logs after 90 days.</p><button id="purge" class="warn">Run retention now</button><p id="pres" class="muted"></p>`;
+    $("view").onclick = async (e) => {
+      try {
+        if (e.target.dataset.x) {
+          const csv = await api(`${A}/export?what=${e.target.dataset.x}`);
+          const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = `caller-identity-${e.target.dataset.x}.csv`; a.click();
+        }
+        if (e.target.id === "purge") $("pres").textContent = JSON.stringify(await post(A + "/retention/purge"));
+      } catch (x) { $("err").textContent = x.message; }
+    };
+  },
+};
+if (token) start();
+</script>
+</body>
+</html>

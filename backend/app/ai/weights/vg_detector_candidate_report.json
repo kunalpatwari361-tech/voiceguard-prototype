@@ -1,0 +1,128 @@
+{
+ "head": "logreg",
+ "layers": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8
+ ],
+ "C": 0.003,
+ "auc_all": 0.9849,
+ "clips": 4453,
+ "by_condition": {
+  "clean": {
+   "auc": 0.9995,
+   "acc": 0.9936
+  },
+  "g711": {
+   "auc": 0.9975,
+   "acc": 0.9745
+  },
+  "lowbit_loss": {
+   "auc": 0.9869,
+   "acc": 0.9458
+  },
+  "opus_wa": {
+   "auc": 0.9981,
+   "acc": 0.9819
+  },
+  "phone_opus": {
+   "auc": 0.9957,
+   "acc": 0.9671
+  },
+  "speaker": {
+   "auc": 0.9272,
+   "acc": 0.8576
+  },
+  "speaker2": {
+   "auc": 0.9239,
+   "acc": 0.8385
+  }
+ },
+ "by_source": {
+  "fleurs": {
+   "n": 2625,
+   "acc": 0.9299
+  },
+  "gtts": {
+   "n": 840,
+   "acc": 0.9464
+  },
+  "librispeech": {
+   "n": 140,
+   "acc": 0.9214
+  },
+  "mms_tts": {
+   "n": 490,
+   "acc": 0.9878
+  },
+  "neural_tts": {
+   "n": 847,
+   "acc": 0.9717
+  },
+  "sapi": {
+   "n": 70,
+   "acc": 1.0
+  },
+  "vocoder_hifigan": {
+   "n": 1575,
+   "acc": 0.9079
+  }
+ },
+ "by_language": {
+  "bn": {
+   "n": 455,
+   "acc": 0.9846,
+   "real_kept_as_real": 0.978
+  },
+  "en": {
+   "n": 1827,
+   "acc": 0.9305,
+   "real_kept_as_real": 0.917
+  },
+  "gu": {
+   "n": 602,
+   "acc": 0.9635,
+   "real_kept_as_real": 0.9441
+  },
+  "hi": {
+   "n": 1708,
+   "acc": 0.9274,
+   "real_kept_as_real": 0.9177
+  },
+  "kn": {
+   "n": 189,
+   "acc": 0.9683,
+   "real_kept_as_real": 1.0
+  },
+  "ml": {
+   "n": 413,
+   "acc": 0.891,
+   "real_kept_as_real": 0.9193
+  },
+  "mr": {
+   "n": 189,
+   "acc": 0.9524,
+   "real_kept_as_real": 0.9328
+  },
+  "pa": {
+   "n": 588,
+   "acc": 0.9439,
+   "real_kept_as_real": 0.9127
+  },
+  "ta": {
+   "n": 329,
+   "acc": 0.9453,
+   "real_kept_as_real": 0.9345
+  },
+  "te": {
+   "n": 287,
+   "acc": 0.9164,
+   "real_kept_as_real": 0.9405
+  }
+ }
+}

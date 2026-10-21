@@ -145,13 +145,9 @@ fun FamilyScreen(nav: NavHostController, back: (() -> Unit)?) {
                             busy = null
                         }
                     }
-                    IconButton({
-                        scope.launch {
-                            busy = tr("Getting live location…", "लाइव लोकेशन ले रहे हैं…")
-                            runCatching { Api.post("/api/location/request", json("asker_id" to Prefs.userId, "target_id" to m.str("id"))) }
-                            refresh(); busy = null
-                        }
-                    }) { Icon(Icons.Default.LocationOn, "Location", tint = VG.blue) }
+                    IconButton({ nav.navigate("liveloc/${m.str("id")}") }) {   // Live Location map
+                        Icon(Icons.Default.LocationOn, tr("Live location", "लाइव लोकेशन"), tint = VG.blue)
+                    }
                     IconButton({ nav.navigate("hdcall/${m.str("id")}") }) { Icon(Icons.Default.HdrOn, "HD call", tint = VG.violet) }
                     IconButton({ dial(ctx, m.str("phone") ?: return@IconButton) }) { Icon(Icons.Default.Call, "Call", tint = VG.green) }
                 }

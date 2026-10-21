@@ -7,7 +7,7 @@ from collections import OrderedDict
 
 import numpy as np
 
-from . import fingerprints, models, phone_channel, reply_delay, scam_text, source_trace
+from . import fingerprints, models, phone_channel, reply_delay, scam_text, source_trace, summary
 from .risk import fuse
 
 # The call screen sends the same clip twice: a quick pass (voice checks only), then again with speech-to-text.
@@ -147,6 +147,7 @@ def analyze_voice(y: np.ndarray, *, claimed_name: str | None = None, claimed_pri
         "phone_quality": {"narrowband": narrow, "simulated_phone_line": simulate_phone},
         "timings_s": timings | {"total": round(time.time() - t0, 2)},
     })
+    out["summary"] = summary.make(out, claimed_name)   # AI Call Summary (English + Hindi)
     if return_embedding:
         out["_embedding"] = emb
     return out

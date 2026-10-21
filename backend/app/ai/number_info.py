@@ -19,8 +19,14 @@ def normalize(number: str) -> str:
     return n
 
 
+KIND_LABELS = {"telemarketing": "Telemarketer", "bank_service": "Bank / financial service",
+               "short_code": "Service short code"}
+
+
 def info(number: str, community_reports: int = 0, blocked_by_family: bool = False,
-         in_family: str | None = None) -> dict:
+         in_family: str | None = None, registered_name: str | None = None, top_reason: str | None = None) -> dict:
+    """registered_name: the name of the VoiceGuard user who proved this number by OTP (Caller ID + Verified badge),
+    unless they hid it. top_reason: the latest community report reason, shown as the caller's label."""
     n = normalize(number)
     flags: list[dict] = []
     kind = "unknown"
@@ -28,6 +34,7 @@ def info(number: str, community_reports: int = 0, blocked_by_family: bool = Fals
     score = 0.1
     if in_family:
         return {"number": n, "kind": "family", "country": "India", "family_member": in_family,
+                "name": in_family, "verified": True, "name_source": "family", "label": "Family",
                 "flags": [{"en": f"Saved family member: {in_family}", "hi": f"परिवार का सदस्य: {in_family}", "level": "safe"}],
                 "spam_score": 0.0, "community_reports": community_reports}
     if n.startswith("+91"):
@@ -70,7 +77,16 @@ def info(number: str, community_reports: int = 0, blocked_by_family: bool = Fals
     if blocked_by_family:
         score = max(score, 0.9)
         flags.append({"en": "Your family has blocked this number.", "hi": "आपके परिवार ने यह नंबर ब्लॉक किया है।", "level": "danger"})
-    if kind == "mobile" and not community_reports:
+    if registered_name:
+        flags.insert(0, {"en": f"Verified VoiceGuard user: {registered_name} (number confirmed by OTP).",
+                         "hi": f"सत्यापित VoiceGuard यूज़र: {registered_name} (नंबर OTP से पक्का)।", "level": "safe"})
+        if not community_reports and not blocked_by_family:
+            score = min(score, 0.1)
+    elif kind == "mobile" and not community_reports:
         flags.append({"en": "Unknown mobile number - not in your family circle.", "hi": "अनजान मोबाइल नंबर - परिवार में नहीं।", "level": "info"})
+    label = (f"Reported: {top_reason}" if community_reports and top_reason
+             else "Reported scam" if community_reports
+             else KIND_LABELS.get(kind) or (f"International · {country}" if kind == "international" and country else None))
     return {"number": n, "kind": kind, "country": country, "flags": flags,
-            "spam_score": round(score, 3), "community_reports": community_reports}
+            "name": registered_name, "verified": bool(registered_name), "name_source": "voiceguard" if registered_name else None,
+            "label": label, "spam_score": round(score, 3), "community_reports": community_reports}

@@ -176,7 +176,8 @@ class InCallActivity : ComponentActivity() {
         val result = tools.analysis?.takeIf { it.bool("ok") != false }
         val level = result.obj("risk").str("level")
         val tint = if (result != null) VG.level(level) else VG.blue
-        val name = family?.str("name") ?: contactName ?: Numbers.pretty(number)
+        val idName = info?.str("name")   // Caller ID from VoiceGuard (verified by OTP) for numbers not in contacts
+        val name = family?.str("name") ?: contactName ?: idName ?: Numbers.pretty(number)
 
         Box(Modifier.fillMaxSize().background(Color(0xFF070B14))
             .background(Brush.verticalGradient(listOf(tint.copy(alpha = 0.38f), Color(0xFF0B1220), Color(0xFF05080F))))) {
@@ -189,7 +190,7 @@ class InCallActivity : ComponentActivity() {
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(name, color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 2)
-                if (family != null || contactName != null) Text(Numbers.pretty(number), color = VG.muted, fontSize = 15.sp)
+                if (family != null || contactName != null || idName != null) Text(Numbers.pretty(number), color = VG.muted, fontSize = 15.sp)
                 Text(when {
                     ended -> tr("Call ended", "कॉल ख़त्म")
                     state == Call.STATE_RINGING -> tr("Incoming call", "इनकमिंग कॉल")
@@ -202,6 +203,8 @@ class InCallActivity : ComponentActivity() {
                 when {
                     family != null -> Chip(tr("Saved family number", "सेव परिवार नंबर"), VG.green)
                     number in Prefs.scamNumbers -> Chip(tr("Reported scam number", "रिपोर्टेड स्कैम नंबर"), VG.red)
+                    info?.bool("verified") == true && (info?.num("spam_score") ?: 0.0) < 0.35 ->
+                        Chip("✓ " + tr("Verified VoiceGuard user", "सत्यापित VoiceGuard यूज़र"), VG.green)
                     contactName == null -> Chip(tr("Not in your contacts", "आपके संपर्कों में नहीं"), VG.amber)
                 }
                 if (!ended && state != Call.STATE_RINGING) AiPill(live, tools) { sheet = "ai" }
@@ -223,6 +226,8 @@ class InCallActivity : ComponentActivity() {
                         SmallButton(tr("Cancel call", "कॉल रद्द करें")) { CallManager.hangup() }
                     }
                     state == Call.STATE_RINGING -> {
+                        if (Prefs.callerIdEnabled && family == null) com.voiceguard.app.callerid.CallerIdentityCard(
+                            number, com.voiceguard.app.callerid.CallerIdentity.numberCheck(number, call?.details), compact = true)
                         info?.let { if ((it.num("spam_score") ?: 0.0) >= 0.3 || contactName == null) NumberInfoCard(it) }
                         Spacer(Modifier.height(24.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -332,11 +337,14 @@ class InCallActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        VG.forceDark = true   // the call screen keeps its dark look in every theme
+        com.voiceguard.app.telecom.CallerIdOverlay.hide()   // this screen shows the caller itself
         com.voiceguard.app.telecom.CallNotifier.uiVisible = true
         com.voiceguard.app.telecom.CallNotifier.update(this)
     }
 
     override fun onPause() {
+        VG.forceDark = false
         com.voiceguard.app.telecom.CallNotifier.uiVisible = false
         com.voiceguard.app.telecom.CallNotifier.update(this)
         super.onPause()

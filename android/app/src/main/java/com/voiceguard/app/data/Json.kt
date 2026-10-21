@@ -22,9 +22,9 @@ fun JsonObject?.obj(k: String): JsonObject? = this?.get(k) as? JsonObject
 fun JsonObject?.arr(k: String): List<JsonElement> = (this?.get(k) as? JsonArray) ?: emptyList()
 fun JsonObject?.objs(k: String): List<JsonObject> = arr(k).mapNotNull { it as? JsonObject }
 
-/** Pick the Hindi variant of a server text when the user prefers Hindi. */
+/** A server text in the chosen language (servers send English + Hindi; see I18n.server). */
 fun JsonObject?.bi(en: String, hi: String): String? =
-    if (Prefs.hindi) str(hi) ?: str(en) else str(en) ?: str(hi)
+    I18n.server(str(en), str(hi))
 
 fun Any?.toJsonElement(): JsonElement = when (this) {
     null -> JsonNull

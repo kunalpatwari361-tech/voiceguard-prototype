@@ -40,6 +40,18 @@ class User(SQLModel, table=True):
     voiceprint_at: dt.datetime | None = None
 
 
+class CallerIdOptOut(SQLModel, table=True):
+    """Users who chose not to show their name as Caller ID to people outside their family."""
+    user_id: str = Field(primary_key=True)
+    created_at: dt.datetime = Field(default_factory=now)
+
+
+class LocationOptOut(SQLModel, table=True):
+    """Users who turned off sharing their location with the family (nothing is stored or shown while off)."""
+    user_id: str = Field(primary_key=True)
+    created_at: dt.datetime = Field(default_factory=now)
+
+
 class Family(SQLModel, table=True):
     id: str = Field(default_factory=short_id, primary_key=True)
     name: str

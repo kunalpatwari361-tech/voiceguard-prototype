@@ -48,6 +48,9 @@ class GuardService : LifecycleService() {
             }
         }
         lifecycleScope.launch { panicLoop() }
+        lifecycleScope.launch {   // phone status, protection, counts and crashes for the Admin Console
+            while (true) { runCatching { AppReporter.send(this@GuardService, force = true) }; delay(6 * 60 * 60_000L) }
+        }
         lifecycleScope.launch { Sync.lists(); runCatching { Sync.family() } }
     }
 
@@ -71,6 +74,7 @@ class GuardService : LifecycleService() {
     private fun onConnected() {
         CallWatch.current(this)?.let { Live.send(json("type" to "call_state", "state" to it)) }
         lifecycleScope.launch { runCatching { Loc.send(this@GuardService) } }
+        lifecycleScope.launch { runCatching { AppReporter.send(this@GuardService) } }
         if (!pushChecked) {           // once per start: register for pushes so alerts arrive when the app is closed
             pushChecked = true
             lifecycleScope.launch { Push.register(this@GuardService) }

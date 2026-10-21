@@ -36,9 +36,6 @@ object CallNotifier {
         nm.createNotificationChannel(NotificationChannel(CH_ONGOING, "Ongoing call", NotificationManager.IMPORTANCE_LOW))
     }
 
-    private fun who(ctx: Context, number: String): String =
-        Sync.memberByPhone(number)?.str("name") ?: Contacts.nameFor(ctx, number) ?: Numbers.pretty(number)
-
     private fun action(ctx: Context, act: String, req: Int): PendingIntent =
         PendingIntent.getBroadcast(ctx, req, Intent(ctx, CallActionReceiver::class.java).setAction(act), PendingIntent.FLAG_IMMUTABLE)
 
@@ -52,20 +49,19 @@ object CallNotifier {
         val state = call.state
         if (state == Call.STATE_DISCONNECTED) return cancel(ctx)
         val number = CallManager.number
-        val name = who(ctx, number)
-        val scam = number in Prefs.scamNumbers
+        val status = CallStatus.of(ctx, number)   // family / saved contact / unknown / suspicious / spam
         val ringing = state == Call.STATE_RINGING
         val b = Notification.Builder(ctx, if (ringing && !uiVisible) CH_RING else CH_ONGOING)
             .setSmallIcon(R.drawable.ic_shield)
-            .setContentTitle(if (scam) "⚠ $name · reported scam" else name)
+            .setContentTitle(if (ringing) "${status.badge} · ${status.title}" else status.title)
             .setCategory(Notification.CATEGORY_CALL)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setColor(if (scam) 0xFFEF4444.toInt() else 0xFF22C55E.toInt())
+            .setColor(status.color)
             .setContentIntent(openUi(ctx))
         when (state) {
             Call.STATE_RINGING -> {
-                b.setContentText("Incoming call · protected by VoiceGuard")
+                b.setContentText("Incoming call · ${status.detail}")
                 if (!uiVisible) b.setFullScreenIntent(openUi(ctx, req = 1), true)
                 b
                     .addAction(Notification.Action.Builder(null, "Decline", action(ctx, CallActionReceiver.HANGUP, 11)).build())

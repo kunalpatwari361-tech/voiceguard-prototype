@@ -53,9 +53,31 @@ object Prefs {
     var pushConfig by str("push_config")
     var pushStatus by str("push_status")
 
-    var hindi by bool("hindi", false)
+    private var hindiOld by bool("hindi", false)
+    private var langCode by str("lang")
+    /** App language code (I18n.ALL). Older installs only had the Hindi switch. */
+    var lang: String
+        get() = langCode ?: if (hindiOld) "hi" else "en"
+        set(v) { langCode = v }
+    var hindi: Boolean
+        get() = lang == "hi"
+        set(v) { I18n.select(if (v) "hi" else "en") }
+    /** "system", "light" or "dark". */
+    var theme by str("theme", "system")
     var autoCheck by bool("auto_check", true)
     var panicPause by bool("panic_pause", true)
+    /** Auto-Block Spam: decline numbers the VoiceGuard community reported as scam (family-blocked ones always are). */
+    var autoBlockScam by bool("auto_block_scam", true)
+    /** Caller ID: show my name (with the Verified badge) to people I call. Mirrors /api/me/caller-id. */
+    var showMyName by bool("show_my_name", true)
+    /** Share this phone's location with the family circle (every 10 min, on request, and the live map). */
+    var shareLocation by bool("share_location", true)
+    /** Caller Identity & Verification (callerid/): show identities, match contacts on the phone, online lookups. */
+    var callerIdEnabled by bool("cid_enabled", true)
+    /** Floating caller card over any screen while a call rings (needs "Display over other apps"). */
+    var floatingCard by bool("floating_card", true)
+    var callerIdContacts by bool("cid_contacts", true)
+    var callerIdOnline by bool("cid_online", true)
     var setupDone by bool("setup_done", false)
 
     var scamNumbers by set("scam_numbers")
@@ -70,6 +92,7 @@ object Prefs {
     val registered get() = userId != null && !token.isNullOrBlank()
 
     fun markRisky(number: String?, score: Int, claimedId: String?) {
+        com.voiceguard.app.service.AppStats.inc("danger_results")
         lastRiskyAt = System.currentTimeMillis()
         lastRiskyNumber = number
         lastRiskyScore = score.toString()

@@ -110,12 +110,16 @@ class VoiceGuardDetector:
         w = np.load(weights_path)
         self.layers = [int(x) for x in w["layers"]]
         self.mean, self.scale = w["mean"], w["scale"]
-        self.coef, self.intercept = w["coef"], float(w["intercept"][0])
+        self.mlp = "W1" in w.files   # train_detector.py --head mlp: one hidden layer; otherwise logistic regression
+        if self.mlp:
+            self.W1, self.b1, self.W2, self.b2 = w["W1"], w["b1"], w["W2"], float(w["b2"][0])
+        else:
+            self.coef, self.intercept = w["coef"], float(w["intercept"][0])
         self.model_id = model_id
 
     def _prob(self, stats: np.ndarray) -> float:
-        st = stats[self.layers].reshape(-1)
-        z = float(((st - self.mean) / self.scale) @ self.coef + self.intercept)
+        st = (stats[self.layers].reshape(-1) - self.mean) / self.scale
+        z = float(np.maximum(st @ self.W1 + self.b1, 0) @ self.W2 + self.b2) if self.mlp else float(st @ self.coef + self.intercept)
         return 1 / (1 + np.exp(-z))
 
     def predict(self, y: np.ndarray, sr: int = 16000, win_s: float = 6.0, max_windows: int = 4,

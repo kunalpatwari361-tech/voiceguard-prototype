@@ -54,6 +54,7 @@ object Live {
         ws = Api.client.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 connected.value = true
+                com.voiceguard.app.service.AppStats.inc("ws_connects")
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -78,6 +79,7 @@ object Live {
             ws = null
             connected.value = false
         }
+        com.voiceguard.app.service.AppStats.inc("ws_drops")   // the family link dropped (network change, weak signal)
         if (wanted) {
             retry?.cancel()
             retry = scope.launch {

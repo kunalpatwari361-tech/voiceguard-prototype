@@ -180,7 +180,7 @@ private fun KeypadTab(initial: String, contacts: List<Contact>, nav: NavHostCont
         Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
             Box(Modifier.size(70.dp).clip(CircleShape).background(if (number.isBlank()) VG.surface2 else VG.green)
                 .clickable(enabled = number.isNotBlank()) { place(number) }, contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Call, tr("Call", "कॉल करें"), tint = if (number.isBlank()) VG.muted else Color.Black,
+                Icon(Icons.Default.Call, tr("Call", "कॉल करें"), tint = if (number.isBlank()) VG.muted else VG.onAccent(VG.green),
                     modifier = Modifier.size(32.dp))
             }
         }

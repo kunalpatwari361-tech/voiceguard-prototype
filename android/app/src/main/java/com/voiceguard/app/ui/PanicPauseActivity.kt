@@ -34,8 +34,13 @@ import kotlinx.coroutines.delay
 
 /** Panic Pause (feature 19): a forced cool-down before paying right after a risky call. */
 class PanicPauseActivity : ComponentActivity() {
+    // its deep-red alarm screen keeps the dark look in every theme
+    override fun onResume() { super.onResume(); VG.forceDark = true }
+    override fun onPause() { VG.forceDark = false; super.onPause() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.voiceguard.app.service.AppStats.inc("panic_pauses")
         val app = intent.getStringExtra("app") ?: "a payment app"
         setContent {
             VgTheme {

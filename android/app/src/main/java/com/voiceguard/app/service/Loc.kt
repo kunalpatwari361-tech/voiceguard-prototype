@@ -7,9 +7,11 @@ import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.CancellationSignal
 import com.voiceguard.app.data.Live
+import com.voiceguard.app.data.Prefs
 import com.voiceguard.app.data.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -62,10 +64,14 @@ object Loc {
         }.getOrNull()
     }
 
+    private fun battery(ctx: Context): Int? =
+        ctx.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
+
     suspend fun send(ctx: Context, requestId: String? = null): Location? {
+        if (!Prefs.shareLocation) return null   // the user turned location sharing off
         val l = current(ctx) ?: return null
         Live.send(json("type" to "location", "lat" to l.latitude, "lon" to l.longitude, "accuracy" to l.accuracy,
-            "place" to place(ctx, l), "request_id" to requestId))
+            "place" to place(ctx, l), "battery" to battery(ctx), "request_id" to requestId))
         return l
     }
 }

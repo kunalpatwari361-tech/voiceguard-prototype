@@ -33,7 +33,7 @@ from app.ai import models  # noqa: E402
 from app.ai.audio_io import load_audio  # noqa: E402
 from app.ai.phone_channel import codec_roundtrip, phone_channel, speaker_room  # noqa: E402
 
-CONDS = ["clean", "g711", "lowbit_loss", "opus_wa", "phone_opus", "speaker"]
+CONDS = ["clean", "g711", "lowbit_loss", "opus_wa", "phone_opus", "speaker", "speaker2"]
 OLD_CONDS = ["clean", "g711", "lowbit_loss"]   # order used by the first version's features.npz
 OUT = ROOT / "app" / "ai" / "weights"
 
@@ -53,6 +53,8 @@ def cond_audio(y, cond, seed):
                                level=rng.uniform(0.85, 1.0), codec_sr=8000)
     if cond == "speaker":     # Live Call Check: the call played on the phone's loudspeaker, heard by its mic
         return speaker_room(y, seed)
+    if cond == "speaker2":    # a second, different random room / codec / noise for the same clip
+        return speaker_room(y, seed + 100_003)
     raise ValueError(cond)
 
 
@@ -144,6 +146,42 @@ class LogReg:
         return np.stack([1 - p, p], axis=1)
 
 
+class MLP:
+    """Small neural judge: one hidden layer with dropout, fitted with AdamW (PyTorch only). Inference is plain NumPy,
+    so the server needs nothing new (app/ai/models.py VoiceGuardDetector)."""
+
+    def __init__(self, hidden=256, wd=1e-4, epochs=25, seed=0):
+        self.hidden, self.wd, self.epochs, self.seed = hidden, wd, epochs, seed
+
+    def fit(self, X, y):
+        torch.manual_seed(self.seed)
+        Xt = torch.tensor(X, dtype=torch.float32)
+        yt = torch.tensor(y, dtype=torch.float32)
+        net = torch.nn.Sequential(torch.nn.Dropout(0.1), torch.nn.Linear(Xt.shape[1], self.hidden), torch.nn.ReLU(),
+                                  torch.nn.Dropout(0.3), torch.nn.Linear(self.hidden, 1))
+        opt = torch.optim.AdamW(net.parameters(), lr=1e-3, weight_decay=self.wd)
+        with torch.enable_grad():
+            net.train()
+            for _ in range(self.epochs):
+                perm = torch.randperm(len(Xt))
+                for i in range(0, len(Xt), 256):
+                    idx = perm[i:i + 256]
+                    opt.zero_grad()
+                    torch.nn.functional.binary_cross_entropy_with_logits(net(Xt[idx])[:, 0], yt[idx]).backward()
+                    opt.step()
+        net.eval()
+        self.W1 = net[1].weight.detach().numpy().T.copy()
+        self.b1 = net[1].bias.detach().numpy().copy()
+        self.W2 = net[4].weight.detach().numpy()[0].copy()
+        self.b2 = float(net[4].bias.detach().numpy()[0])
+        return self
+
+    def predict_proba(self, X):
+        z = np.maximum(X @ self.W1 + self.b1, 0) @ self.W2 + self.b2
+        p = 1 / (1 + np.exp(-z))
+        return np.stack([1 - p, p], axis=1)
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser()
@@ -154,6 +192,8 @@ def main():
     ap.add_argument("--quick", action="store_true",
                     help="one fit with the layers + C the last full run picked (minutes) instead of trying 9 settings")
     ap.add_argument("--drop", default="", help="leave clips out without deleting them, e.g. 'source=gtts,lang=bn'")
+    ap.add_argument("--head", choices=["logreg", "mlp"], default="logreg",
+                    help="logreg (one weight per number) or mlp (small neural network with one hidden layer)")
     a = ap.parse_args()
     root = Path(a.root)
     rows = list(csv.DictReader(open(root / "manifest.csv", encoding="utf-8")))
@@ -200,29 +240,36 @@ def main():
     y = np.array([m[0] == "fake" for m in meta])
     is_test = np.array([m[3] for m in meta])
 
-    layer_sets, Cs = ([4, 5, 6], [2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6, 7, 8]), (0.003, 0.01, 0.03)
+    # logreg: C = how loosely the weights may fit; mlp: param = weight decay of the small neural network
+    if a.head == "mlp":
+        layer_sets, params, make, pname = ([2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6, 7, 8]), (1e-4,), (lambda v: MLP(wd=v)), "wd"
+    else:
+        layer_sets, params, make, pname = ([4, 5, 6], [2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6, 7, 8]), (0.003, 0.01, 0.03), LogReg, "C"
     if a.quick:
         rep = OUT / f"{a.out}_report.json"
-        prev = json.loads(rep.read_text()) if rep.exists() else {"layers": [2, 3, 4, 5, 6], "C": 0.01}
-        layer_sets, Cs = (prev["layers"],), (prev["C"],)
-        print(f"--quick: layers={prev['layers']} C={prev['C']} (from {rep.name if rep.exists() else 'defaults'})")
+        prev = json.loads(rep.read_text()) if rep.exists() else {}
+        if prev.get("head", "logreg") == a.head and pname in prev:
+            layer_sets, params = (prev["layers"],), (prev[pname],)
+        else:
+            layer_sets, params = ([2, 3, 4, 5, 6],), (params[len(params) // 2],)
+        print(f"--quick: {a.head} layers={layer_sets[0]} {pname}={params[0]}")
     best = None
     for layers in layer_sets:
         X = feats[:, layers, :].reshape(len(feats), -1)
         sc = Scaler().fit(X[~is_test])
-        for C in Cs:
-            clf = LogReg(C).fit(sc.transform(X[~is_test]), y[~is_test].astype(np.float32))
+        for v in params:
+            clf = make(v).fit(sc.transform(X[~is_test]), y[~is_test].astype(np.float32))
             p = clf.predict_proba(sc.transform(X[is_test]))[:, 1]
             auc_v = auc(p[y[is_test]], p[~y[is_test]])
-            print(f"  layers={layers} C={C} AUC={auc_v:.4f}", flush=True)
+            print(f"  {a.head} layers={layers} {pname}={v} AUC={auc_v:.4f}", flush=True)
             if best is None or auc_v > best[0]:
-                best = (auc_v, layers, C, sc, clf)
-    auc_v, layers, C, sc, clf = best
-    print(f"\nbest layers={layers} C={C} test AUC (all conditions)={auc_v:.4f}")
+                best = (auc_v, layers, v, sc, clf)
+    auc_v, layers, v, sc, clf = best
+    print(f"\nbest {a.head} layers={layers} {pname}={v} test AUC (all conditions)={auc_v:.4f}")
 
     X = feats[:, layers, :].reshape(len(feats), -1)
     p = clf.predict_proba(sc.transform(X))[:, 1]
-    report = {"layers": layers, "C": C, "auc_all": round(auc_v, 4), "clips": len(rows),
+    report = {"head": a.head, "layers": layers, pname: v, "auc_all": round(auc_v, 4), "clips": len(rows),
               "by_condition": {}, "by_source": {}, "by_language": {}}
     for c in fit_conds:
         m = is_test & np.array([mm[4] == c for mm in meta])
@@ -246,11 +293,15 @@ def main():
 
     # Refit on ALL data for the shipped model (the test numbers above stay the honest estimate).
     sc_all = Scaler().fit(X)
-    clf_all = LogReg(C).fit(sc_all.transform(X), y.astype(np.float32))
+    clf_all = make(v).fit(sc_all.transform(X), y.astype(np.float32))
     OUT.mkdir(parents=True, exist_ok=True)
-    np.savez(OUT / f"{a.out}.npz", layers=np.array(layers), mean=sc_all.mean_.astype(np.float32),
-             scale=sc_all.scale_.astype(np.float32), coef=clf_all.coef_[0].astype(np.float32),
-             intercept=np.array(clf_all.intercept_, dtype=np.float32))
+    common = dict(layers=np.array(layers), mean=sc_all.mean_.astype(np.float32), scale=sc_all.scale_.astype(np.float32))
+    if a.head == "mlp":
+        np.savez(OUT / f"{a.out}.npz", **common, W1=clf_all.W1.astype(np.float32), b1=clf_all.b1.astype(np.float32),
+                 W2=clf_all.W2.astype(np.float32), b2=np.array([clf_all.b2], dtype=np.float32))
+    else:
+        np.savez(OUT / f"{a.out}.npz", **common, coef=clf_all.coef_[0].astype(np.float32),
+                 intercept=np.array(clf_all.intercept_, dtype=np.float32))
     (OUT / f"{a.out}_report.json").write_text(json.dumps(report, indent=1))
     print("saved", OUT / f"{a.out}.npz")
 

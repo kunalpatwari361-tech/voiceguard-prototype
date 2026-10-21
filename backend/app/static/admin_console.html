@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoiceGuard Admin Console</title>
+<style>
+:root { --bg:#f3f6fa; --card:#fff; --ink:#0f172a; --muted:#526173; --line:#d5dde8; --accent:#0369a1; --ok:#15803d; --warn:#b45309; --bad:#dc2626; --okbg:#e3f3e8; --warnbg:#fbefd9; --badbg:#fde4e1; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0b1220; --card:#131c2f; --ink:#e5e7eb; --muted:#94a3b8; --line:#26324a; --accent:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --okbg:#113222; --warnbg:#3a2a10; --badbg:#3d1916; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 "Segoe UI", system-ui, sans-serif; }
+header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+header h1 { font-size:18px; margin:0; } .who { margin-left:auto; color:var(--muted); font-size:13px; }
+main { max-width:1180px; margin:0 auto; padding:16px 20px 60px; display:grid; gap:16px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; min-width:0; }
+nav { display:flex; gap:6px; flex-wrap:wrap; }
+button { font:inherit; padding:7px 12px; border-radius:7px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+button.on { background:var(--accent); color:#fff; border-color:var(--accent); } button.ok { color:var(--ok); border-color:var(--ok); }
+button.bad { color:var(--bad); border-color:var(--bad); } button.warn { color:var(--warn); border-color:var(--warn); }
+input, select { font:inherit; padding:7px 10px; border-radius:7px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+table { width:100%; border-collapse:collapse; font-size:14px; } th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+.scroll { overflow-x:auto; } .muted { color:var(--muted); } .err { color:var(--bad); } .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.grid { display:grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap:16px; } @media (max-width:820px) { .grid { grid-template-columns:1fr; } }
+.pill { font-size:12px; padding:2px 9px; border-radius:99px; font-weight:600; } .secure { background:var(--okbg); color:var(--ok); } .warning { background:var(--warnbg); color:var(--warn); } .breached { background:var(--badbg); color:var(--bad); }
+.sev-critical, .sev-high { color:var(--bad); font-weight:600; } .sev-medium { color:var(--warn); font-weight:600; } .sev-low { color:var(--muted); }
+.banner { padding:12px 16px; border-radius:10px; background:var(--badbg); color:var(--bad); font-weight:600; border:1px solid var(--bad); }
+.stats { display:flex; gap:10px; flex-wrap:wrap; } .stat { padding:9px 13px; border:1px solid var(--line); border-radius:8px; background:var(--card); } .stat b { display:block; font-size:19px; }
+pre { margin:0; font:12.5px/1.45 Consolas, monospace; white-space:pre-wrap; word-break:break-all; max-height:560px; overflow:auto; }
+[hidden] { display:none !important; }
+.castle text { font:600 11px "Segoe UI", sans-serif; }
+</style>
+</head>
+<body>
+<header><h1>🏰 VoiceGuard Admin Console</h1><span class="muted">security · data · logs · reports · updates</span><span class="who" id="who"></span></header>
+<main>
+  <section class="card" id="login">
+    <p>Administrators only. Sign in with your admin phone number (VoiceGuard OTP). The server checks your access for every action.</p>
+    <div class="row"><input id="phone" placeholder="Phone number" autocomplete="tel"><button id="send">Send code</button></div>
+    <div class="row" id="step2" hidden style="margin-top:8px"><input id="code" placeholder="6-digit code" inputmode="numeric"><input id="name" placeholder="Your name"><button id="verify">Sign in</button></div>
+    <p class="err" id="loginErr"></p>
+  </section>
+  <div id="app" hidden style="display:grid; gap:16px">
+    <div id="lockBanner"></div>
+    <nav id="tabs"></nav>
+    <section id="view" style="display:grid; gap:16px"></section>
+    <p class="err" id="err"></p>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const C = "/api/admin/console";
+let token = null; try { token = sessionStorage.getItem("vg_console_token"); } catch (e) {}
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) } });
+  if (!r.ok) { let m = String(r.status); try { m = (await r.json()).detail || m; } catch (e) {} throw new Error(m); }
+  return r.json();
+}
+const post = (p, b) => api(p, { method: "POST", body: JSON.stringify(b || {}) });
+$("send").onclick = async () => { $("loginErr").textContent = ""; try { await post("/api/auth/otp/start", { phone: $("phone").value }); $("step2").hidden = false; } catch (e) { $("loginErr").textContent = e.message; } };
+$("verify").onclick = async () => {
+  $("loginErr").textContent = "";
+  try { const r = await post("/api/auth/otp/verify", { phone: $("phone").value, code: $("code").value, name: $("name").value || "Admin" });
+    token = r.token; try { sessionStorage.setItem("vg_console_token", token); } catch (e) {} boot(); }
+  catch (e) { $("loginErr").textContent = e.message; }
+};
+function table(rows, cols, actions) {
+  if (!rows || !rows.length) return '<p class="muted">Nothing here.</p>';
+  return `<div class="scroll"><table><tr>${cols.map((c) => `<th>${esc(c[1])}</th>`).join("")}${actions ? "<th></th>" : ""}</tr>` +
+    rows.map((r) => `<tr>${cols.map((c) => `<td class="${c[2] ? c[2](r) : ""}">${esc(typeof c[0] === "function" ? c[0](r) : r[c[0]])}</td>`).join("")}${actions ? `<td>${actions(r)}</td>` : ""}</tr>`).join("") + "</table></div>";
+}
+const COLORS = { secure: "var(--ok)", warning: "var(--warn)", breached: "var(--bad)" };
+function castle(layers) {
+  // seven rings: the outermost is layer 1 (moat), the innermost layer 7 guards the app itself
+  const cx = 170, cy = 170, rings = layers.map((l, i) => {
+    const r = 160 - i * 21;
+    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${COLORS[l.state]}" stroke-width="15" opacity="${l.state === "secure" ? 0.55 : 0.95}"/>` +
+      `<text x="${cx}" y="${cy - r + 4}" text-anchor="middle" fill="currentColor">${l.id} ${esc(l.name)}</text>`;
+  }).join("");
+  return `<svg class="castle" viewBox="0 0 340 340" role="img" aria-label="Seven security layers; colour shows each layer's state" style="width:100%;max-width:360px;color:var(--ink)">${rings}
+    <text x="${cx}" y="${cy - 4}" text-anchor="middle" fill="currentColor" style="font-size:13px">🛡 VoiceGuard</text><text x="${cx}" y="${cy + 13}" text-anchor="middle" fill="currentColor" class="muted" style="font-size:10px">users' data</text></svg>`;
+}
+const TABS = { overview: "Security", phones: "Phones & app", incidents: "Incidents", blocks: "Blocked", data: "Data", logs: "Logs", reports: "Reports", updates: "Updates & bugs" };
+let tab = "overview", timer = null;
+async function boot() {
+  try {
+    const me = await api(C + "/me"); $("who").textContent = me.name + " · " + me.phone;
+    $("login").hidden = true; $("app").hidden = false;
+    $("tabs").innerHTML = Object.entries(TABS).map(([k, v]) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${v}</button>`).join("");
+    $("tabs").onclick = (e) => { if (e.target.dataset.t) { tab = e.target.dataset.t; boot(); } };
+    await VIEWS[tab]();
+    clearInterval(timer); if (tab === "overview") timer = setInterval(() => VIEWS.overview().catch(() => {}), 15000);
+  } catch (e) {
+    if (e.message === "Administrators only.") { $("login").hidden = false; $("app").hidden = true; $("step2").hidden = true; $("code").value = ""; token = null; try { sessionStorage.clear(); } catch (x) {} $("loginErr").textContent = "You are signed in, but this number is not an administrator. Ask the server owner to add it to VG_ADMIN_PHONES (backend/.env) and restart the server. Do not retry the code – a used code cannot be reused."; }
+    else if (String(e.message).startsWith("Please verify")) { $("login").hidden = false; $("app").hidden = true; }
+    else $("err").textContent = e.message;
+  }
+}
+const VIEWS = {
+  async overview() {
+    const s = await api(C + "/status"), inc = await api(C + "/incidents?state=open"), dv = (await api(C + "/devices")).summary;
+    $("lockBanner").innerHTML = s.lockdown ? `<div class="banner">🔒 LOCKDOWN – users cannot use VoiceGuard right now. Reason: ${esc(s.lockdown.reason)} <button class="ok" id="unlock" style="margin-left:12px">End lockdown</button></div>` : "";
+    if (s.lockdown) $("unlock").onclick = async () => { await post(C + "/lockdown", { on: false }); boot(); };
+    $("view").innerHTML = `<div class="stats">${[["Open incidents", inc.length], ["Active blocks", s.active_blocks], ["Admins who get alerts", s.admins + (s.admin_phones_configured ? "" : " (set VG_ADMIN_PHONES)")],
+      ["Code & AI files", s.integrity_clean ? "match approved" : "CHANGED"], ["Phones reporting (24 h)", dv.active_24h + " / " + dv.phones], ["Phones at risk", dv.at_risk], ["Fully protected", dv.fully_protected + " / " + dv.phones], ["Phones online now", s.phones_online]]
+      .map(([k, v]) => `<div class="stat"><span class="muted">${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
+      <div class="grid"><div class="card">${castle(s.layers)}<div class="row" style="margin-top:8px"><button class="warn" id="lock">Lockdown now</button><button id="test">Send test alert</button></div></div>
+      <div class="card">${table(s.layers, [["id", "#"], [(l) => l.name + " – " + l.what, "Layer"], ["guards", "Guards against"], [(l) => l.state, "State", (l) => "pill " + l.state], ["open_incidents", "Open"], ["events_24h", "Events 24 h"]])}</div></div>
+      <div class="card"><h3 style="margin-top:0">Open incidents</h3>${incTable(inc)}</div>`;
+    $("lock").onclick = async () => { const why = prompt("Reason for lockdown (users will be stopped):", "Suspected breach"); if (why !== null) { await post(C + "/lockdown", { on: true, reason: why }); boot(); } };
+    $("test").onclick = async () => { await post(C + "/test-alert"); alert("Test alert sent to all admins."); boot(); };
+    bindInc();
+  },
+  async phones() {
+    const d = await api(C + "/devices"), act = await api(C + "/app-activity?days=7"), sm = d.summary;
+    const yes = (v) => v ? "✓" : "✗";
+    const LABEL = { calls_screened: "Calls screened", spam_warned: "Spam warnings", auto_blocked: "Auto-blocked", ai_checks: "AI voice checks", danger_results: "Danger results",
+      family_alerts: "Family alerts sent", panic_pauses: "Panic Pauses", caller_id_lookups: "Caller ID lookups", live_location_views: "Live location views" };
+    $("view").innerHTML = `<div class="stats">${[["Phones", sm.phones], ["Reporting (24 h)", sm.active_24h], ["At risk", sm.at_risk], ["Fully protected", sm.fully_protected],
+      ["App versions", Object.entries(sm.versions).map(([v, n]) => v + " ×" + n).join(", ") || "-"]].map(([k, v]) => `<div class="stat"><span class="muted">${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
+      <div class="card"><h3 style="margin-top:0">Phones (data sent by the VoiceGuard app)</h3>${table(d.devices, [["user", "User"], ["phone", "Phone"], ["model", "Model"], ["android", "Android"], ["app_version", "App"],
+        ["last_report", "Last report"], [(x) => x.protection_off.length ? "OFF: " + x.protection_off.join(", ") : "all on", "Protection", (x) => x.protection_off.length ? "sev-medium" : ""],
+        [(x) => x.risks.length ? x.risks.join(", ") : "none", "Device risks", (x) => x.risks.some((r) => ["unknown_app", "rooted", "debugger"].includes(r)) ? "sev-high" : x.risks.length ? "sev-low" : ""]])}
+        <p class="muted">Only device status and counts are sent – never phone numbers, contacts, messages or recordings.</p></div>
+      <div class="card"><h3 style="margin-top:0">App activity – last 7 days</h3><div class="stats">${Object.entries(act.totals).map(([k, v]) => `<div class="stat"><span class="muted">${esc(LABEL[k] || k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
+        ${table(act.per_day, [["day", "Day"], ...Object.keys(LABEL).map((k) => [k, LABEL[k]])])}</div>`;
+  },
+  async incidents() {
+    $("view").innerHTML = `<div class="card"><div class="row"><select id="st"><option value="open">open</option><option value="all">all</option><option value="resolved">resolved</option></select><button id="go">Show</button></div><div id="list"></div></div>`;
+    const load = async () => { $("list").innerHTML = incTable(await api(`${C}/incidents?state=${$("st").value}`)); bindInc(load); };
+    $("go").onclick = load; await load();
+  },
+  async blocks() {
+    $("view").innerHTML = `<div class="card"><div class="row"><select id="bk"><option value="ip">IP address</option><option value="phone">phone number</option></select><input id="bv" placeholder="Value"><input id="bm" placeholder="Minutes (empty = until removed)" size="26"><input id="br" placeholder="Reason"><button class="bad" id="add">Block</button></div><div id="list"></div></div>`;
+    const load = async () => {
+      $("list").innerHTML = table(await api(C + "/blocks"), [["kind", "Kind"], ["value", "Value"], ["reason", "Reason"], ["until", "Until"], ["by", "By"], [(b) => b.active ? "active" : "expired", "State"]],
+        (b) => `<button data-del="${b.id}">Remove</button>`);
+      $("list").onclick = async (e) => { if (e.target.dataset.del) { await api(`${C}/blocks/${e.target.dataset.del}`, { method: "DELETE" }); load(); } };
+    };
+    $("add").onclick = async () => { try { await post(C + "/blocks", { kind: $("bk").value, value: $("bv").value, minutes: $("bm").value ? Number($("bm").value) : null, reason: $("br").value }); load(); } catch (e) { $("err").textContent = e.message; } };
+    await load();
+  },
+  async data() {
+    const d = await api(C + "/data");
+    $("view").innerHTML = `<div class="card"><div class="row"><b>Database ${esc(d.db_size_mb)} MB</b><button id="chk">Check integrity</button><button id="bak">Back up now</button><span id="res" class="muted"></span></div></div>
+      <div class="grid"><div class="card"><h3 style="margin-top:0">Tables</h3>${table(Object.entries(d.tables).map(([t, n]) => ({ t, n })), [["t", "Table"], ["n", "Rows"]])}</div>
+      <div class="card"><h3 style="margin-top:0">Backups (last 10 kept)</h3>${table(d.backups, [["name", "File"], ["size_mb", "MB"]])}</div></div>`;
+    $("chk").onclick = async () => { $("res").textContent = "Integrity: " + (await post(C + "/data/check")).result; };
+    $("bak").onclick = async () => { $("res").textContent = "Saved " + (await post(C + "/data/backup")).file; VIEWS.data(); };
+  },
+  async logs() {
+    $("view").innerHTML = `<div class="card"><div class="row"><input id="q" placeholder="Filter (e.g. ERROR, security, analyze)"><select id="n"><option>200</option><option>500</option><option>1000</option></select><button id="go">Show</button></div><div class="card" style="margin-top:10px"><pre id="out"></pre></div>
+      <h3>Security events</h3><div id="ev"></div></div>`;
+    const load = async () => {
+      $("out").textContent = (await api(`${C}/logs?lines=${$("n").value}&q=${encodeURIComponent($("q").value)}`)).lines.join("\n") || "(empty)";
+      $("ev").innerHTML = table(await api(C + "/events?limit=200"), [["at", "Time"], ["layer", "Layer"], ["kind", "Kind"], ["severity", "Severity", (e) => "sev-" + e.severity], ["ip", "IP"], ["path", "Path"], ["detail", "Detail"]]);
+    };
+    $("go").onclick = load; await load();
+  },
+  async reports() {
+    const r = await api(C + "/reports");
+    $("view").innerHTML = `<div class="stats">${[["Users", r.users], ["Families", r.families], ["Scam reports", r.scam_reports], ["Evidence reports", r.evidence_reports], ["Security incidents (7 d)", r.incidents_7d]]
+      .map(([k, v]) => `<div class="stat"><span class="muted">${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
+      <div class="grid"><div class="card"><h3 style="margin-top:0">Most reported numbers</h3>${table(r.top_reported_numbers, [["number", "Number"], ["reports", "Reports"]])}</div>
+      <div class="card"><h3 style="margin-top:0">Last 7 days</h3>${table(Object.entries(r.alerts_7d).map(([k, v]) => ({ k, v })), [["k", "Family alerts"], ["v", "Count"]])}${table(Object.entries(r.risk_checks_7d).map(([k, v]) => ({ k, v })), [["k", "Voice checks by result"], ["v", "Count"]])}
+      <p><a href="/admin/caller-identity">Caller Identity moderation →</a></p></div></div>`;
+  },
+  async updates() {
+    const u = await api(C + "/updates"), i = u.integrity, changed = [...i.changed, ...i.added, ...i.removed];
+    const bugs = (await api(C + "/events?limit=500")).filter((e) => e.kind === "bug" || e.kind === "error_burst");
+    const crashes = await api(C + "/crashes?state=open");
+    $("view").innerHTML = `<div class="grid"><div class="card"><h3 style="margin-top:0">Versions</h3><p>Server ${esc(u.server_version)}<br>AI detector ${esc(u.ai_models.detector)}<br>Voice model ${esc(u.ai_models.speaker)}<br>Speech to text ${esc(u.ai_models.speech_to_text)}</p>
+      <p><b>Android app</b><br>${u.app_apk ? `${esc(u.app_apk.file)} · ${esc(u.app_apk.size_mb)} MB · built ${esc(u.app_apk.updated)}` : "no APK found"}</p>${table(u.weights, [["file", "AI weights"], ["updated", "Updated"]])}</div>
+      <div class="card"><h3 style="margin-top:0">Code & AI integrity (Vault)</h3><p>${i.clean ? '<span class="pill secure">matches the approved version</span>' : `<span class="pill breached">${changed.length} file(s) differ from the approved version</span>`}<br><span class="muted">Approved ${esc(i.approved_at)} by ${esc(i.approved_by)}</span></p>
+      ${changed.length ? `<pre>${esc(changed.join("\n"))}</pre><p><button class="ok" id="ap">These changes are my update – approve</button></p>` : ""}
+      <p class="muted">Files changing while the server runs trigger a lockdown. After installing an update, restart the server and approve it here.</p></div></div>
+      <div class="card"><h3 style="margin-top:0">App crashes (reported by phones)</h3>${table(crashes, [["at", "Time"], ["app_version", "App"], ["model", "Phone"], ["android", "Android"], ["exception", "Error"], ["message", "Message"], [(c) => (c.stack || "").split("
+").slice(0, 3).join(" ← "), "Where in the code"]],
+        (c) => `<button class="ok" data-fix="${c.id}">Fixed</button>`)}</div>
+      <div class="card"><h3 style="margin-top:0">Server errors</h3>${table(bugs, [["at", "Time"], ["path", "Where"], ["detail", "Error"]])}</div>`;
+    $("view").onclick = async (e) => { if (e.target.dataset.fix) { await post(`${C}/crashes/${e.target.dataset.fix}/fixed`); VIEWS.updates(); } };
+    if ($("ap")) $("ap").onclick = async () => { await post(C + "/updates/approve"); VIEWS.updates(); };
+  },
+};
+function incTable(rows) {
+  return table(rows, [["last_at", "Last seen"], ["layer", "Layer"], ["severity", "Severity", (i) => "sev-" + i.severity], ["title", "What happened"], ["detail", "Detail"], ["action", "Stopped by"], ["count", "Times"], ["status", "Status"]],
+    (i) => i.status === "resolved" ? `<button data-i="${i.id}" data-a="reopen">Reopen</button>` : `<div class="row"><button data-i="${i.id}" data-a="acknowledge">Acknowledge</button><button class="ok" data-i="${i.id}" data-a="resolve">Resolve</button></div>`);
+}
+function bindInc(reload) {
+  $("view").onclick = async (e) => { const i = e.target.dataset.i; if (i) { await post(`${C}/incidents/${i}/${e.target.dataset.a}`); (reload || VIEWS[tab])(); } };
+}
+if (token) boot();
+</script>
+</body>
+</html>

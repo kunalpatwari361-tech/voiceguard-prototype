@@ -70,6 +70,8 @@ import com.voiceguard.app.data.Prefs
 import com.voiceguard.app.data.Sync
 import com.voiceguard.app.data.arr
 import com.voiceguard.app.data.asObj
+import com.voiceguard.app.data.bi
+import com.voiceguard.app.data.bool
 import com.voiceguard.app.data.int
 import com.voiceguard.app.data.json
 import com.voiceguard.app.data.num
@@ -85,14 +87,16 @@ fun HomeScreen(nav: NavHostController) {
     val ctx = LocalContext.current
     val connected by Live.connected.collectAsState()
     var lang by remember { mutableIntStateOf(0) }
+    var langOpen by remember { mutableStateOf(false) }
     var fam by remember { mutableStateOf(Sync.cachedFamily()) }
     LaunchedEffect(Unit) { runCatching { Sync.family() }.getOrNull()?.let { fam = it } }
 
     Screen("VoiceGuard", onBack = null, actions = {
-        IconButton({ Prefs.hindi = !Prefs.hindi; lang++ }) { Icon(Icons.Default.Translate, "Language") }
+        IconButton({ langOpen = true }) { Icon(Icons.Default.Translate, "Language") }
         IconButton({ nav.navigate("alerts") }) { Icon(Icons.Default.Notifications, "Alerts") }
         IconButton({ nav.navigate("settings") }) { Icon(Icons.Default.Settings, "Settings") }
     }) {
+        if (langOpen) LanguageDialog({ langOpen = false }) { lang++ }
         androidx.compose.runtime.key(lang) {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(VG.surface).padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically) {
@@ -175,13 +179,15 @@ fun NumberInfoCard(info: JsonObject) {
     val s = info.num("spam_score") ?: 0.0
     Section(tr("Number Info", "नंबर जानकारी"), Icons.Default.Info, VG.score(s)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(Numbers.pretty(info.str("number")), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(info.str("name") ?: Numbers.pretty(info.str("number")), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             Chip(tr("Risk", "जोखिम") + " ${(s * 100).toInt()}%", VG.score(s))
         }
-        Text(listOfNotNull(info.str("kind"), info.str("country")).joinToString(" · "), color = VG.muted, fontSize = 13.sp)
+        if (info.bool("verified") == true) Chip("✓ " + tr("Verified VoiceGuard user", "सत्यापित VoiceGuard यूज़र"), VG.green)
+        if (info.str("name") != null) Text(Numbers.pretty(info.str("number")), color = VG.muted, fontSize = 13.sp)
+        Text(listOfNotNull(info.str("label") ?: info.str("kind"), info.str("country")).joinToString(" · "), color = VG.muted, fontSize = 13.sp)
         info.objs("flags").forEach { f ->
             val c = when (f.str("level")) { "danger" -> VG.red; "warn" -> VG.amber; "safe" -> VG.green; else -> VG.muted }
-            Text("• " + (if (Prefs.hindi) f.str("hi") else f.str("en")).orEmpty(), color = c, fontSize = 14.sp)
+            Text("• " + f.bi("en", "hi").orEmpty(), color = c, fontSize = 14.sp)
         }
     }
 }
@@ -201,6 +207,7 @@ fun NumberScreen(number: String, back: () -> Unit) {
     }
     LaunchedEffect(number) { load() }
     Screen(tr("Number details", "नंबर जानकारी"), back) {
+        if (Prefs.callerIdEnabled) com.voiceguard.app.callerid.CallerIdentityCard(number)   // Caller Identity & Verification
         ErrorBox(err)
         info?.let { i ->
             NumberInfoCard(i)
